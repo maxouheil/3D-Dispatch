@@ -8,3 +8,5 @@ Exemple : `ikea-1.jpg`, `ikea-2.jpg`, etc.
 
 Pour le MVP, vous pouvez utiliser des images placeholder ou des images de test.
 
+
+

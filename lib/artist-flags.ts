@@ -13,3 +13,5 @@ export function getArtistFlag(name: string): string {
   return artistFlags[name] || '🌐';
 }
 
+
+

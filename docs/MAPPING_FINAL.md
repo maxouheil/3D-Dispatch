@@ -171,3 +171,5 @@ Une fois configuré:
    - Ajouter la gestion des renders depuis le DRIVE LINK
    - Synchronisation bidirectionnelle (écriture vers Google Sheets)
 
+
+

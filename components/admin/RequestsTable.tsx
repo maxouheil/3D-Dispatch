@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Request, Artist } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ export function RequestsTable({
   onAssign,
   onStatusChange,
 }: RequestsTableProps) {
+  const router = useRouter();
   const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<string>('');
 
@@ -106,6 +108,20 @@ export function RequestsTable({
     }
   };
 
+  const handleRowClick = (requestId: string, e: React.MouseEvent) => {
+    // Ne pas naviguer si on clique sur un élément interactif
+    const target = e.target as HTMLElement;
+    if (
+      target.tagName === 'SELECT' ||
+      target.tagName === 'BUTTON' ||
+      target.closest('select') ||
+      target.closest('button')
+    ) {
+      return;
+    }
+    router.push(`/request/${requestId}`);
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -128,7 +144,11 @@ export function RequestsTable({
             </thead>
             <tbody>
               {requests.map((request) => (
-                <tr key={request.id} className="border-b hover:bg-gray-50">
+                <tr
+                  key={request.id}
+                  className="border-b hover:bg-gray-50 cursor-pointer"
+                  onClick={(e) => handleRowClick(request.id, e)}
+                >
                   <td className="p-3 font-medium">#{request.number}</td>
                   <td className="p-3 w-[15%]">{request.clientName}</td>
                   <td className="p-3">

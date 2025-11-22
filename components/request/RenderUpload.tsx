@@ -124,27 +124,7 @@ export function RenderUpload({
         {renders.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6">
             {renders.map((render) => (
-              <div
-                key={render.id}
-                className="relative group border rounded-lg overflow-hidden"
-              >
-                <div className="aspect-square relative bg-gray-100">
-                  <Image
-                    src={render.url}
-                    alt={render.filename}
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                <div className="p-2 bg-white">
-                  <p className="text-xs text-gray-600 truncate">
-                    {render.filename}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {new Date(render.uploadedAt).toLocaleDateString('fr-FR')}
-                  </p>
-                </div>
-              </div>
+              <RenderImage key={render.id} render={render} />
             ))}
           </div>
         )}
@@ -152,4 +132,38 @@ export function RenderUpload({
     </Card>
   );
 }
+
+function RenderImage({ render }: { render: Render }) {
+  const [imageError, setImageError] = useState(false);
+
+  return (
+    <div className="relative group border rounded-lg overflow-hidden">
+      <div className="aspect-square relative bg-gray-300">
+        {imageError ? (
+          <div className="w-full h-full bg-gray-300 flex items-center justify-center">
+            <ImageIcon className="w-8 h-8 text-gray-400" />
+          </div>
+        ) : (
+          <Image
+            src={render.url}
+            alt={render.filename}
+            fill
+            className="object-cover"
+            onError={() => setImageError(true)}
+          />
+        )}
+      </div>
+      <div className="p-2 bg-white">
+        <p className="text-xs text-gray-600 truncate">
+          {render.filename}
+        </p>
+        <p className="text-xs text-gray-400">
+          {new Date(render.uploadedAt).toLocaleDateString('fr-FR')}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
 

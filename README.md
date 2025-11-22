@@ -11,9 +11,16 @@ Outil interne de dispatch de requêtes 3D pour gérer le backlog et la performan
 - **Upload de rendus** : Upload d'images directement depuis l'interface
 
 ### Pour les Admins
-- **Dashboard avec KPIs** : Vue d'ensemble (total requests, ongoing, sent, backlog)
-- **Récapitulatif par artiste** : Backlog count, ongoing, sent, target/week avec progress bars
-- **Tableau toutes requêtes** : Vue complète avec assignation manuelle
+- **Dashboard avec KPIs** : Vue d'ensemble avec règles de calcul personnalisées
+  - **Requests** = Backlog + Ongoing
+  - **Backlog** = New + Pending
+  - **Ongoing** = Transmitted to 3D artist
+  - **Sent this week** = Sent to client (filtre semaine en cours)
+- **Récapitulatif par artiste** : Tableau trié par target/week avec progress bar combinée
+  - Colonnes : Name, Sent this week, Ongoing, Progress, Target/week
+  - Progress bar : Vert (Sent this week) + Orange clair (Ongoing)
+  - Affichage du pourcentage de progression
+- **Tableau toutes requêtes** : Vue complète avec assignation manuelle et filtres
 - **Dispatch automatique** : Algorithme basé sur backlog, performance et target/week
 - **Configuration dispatch** : Ajustement des poids de l'algorithme
 
@@ -53,13 +60,17 @@ L'application sera accessible sur [http://localhost:3000](http://localhost:3000)
 
 ## Artistes 3D
 
-- Vitalii
-- Vladyslav
-- Xuan
-- Mychailo
-- Konstantin
-- Sarabjot
-- Mustafa
+| Artiste | Target/Week |
+|---------|-------------|
+| Vitalii | 30 |
+| Xuan | 20 |
+| Vladyslav | 20 |
+| Mychailo | 15 |
+| Konstantin | 10 |
+| Sarabjot | 10 |
+| Mustafa | 10 |
+| Ahsan | 10 |
+| Tagyr | 10 |
 
 ## Technologies
 
@@ -72,4 +83,28 @@ L'application sera accessible sur [http://localhost:3000](http://localhost:3000)
 ## Données
 
 Les données sont stockées dans `/data/requests.json` et `/data/artists.json`. Pour le MVP, ce sont des fichiers JSON statiques qui peuvent être facilement migrés vers une base de données plus tard.
+
+## Récupération des Prix
+
+Le système supporte deux méthodes pour récupérer les prix des projets :
+
+### Méthode 1: Via Google Drive (ancienne)
+- Extraction du code projet depuis Google Doc
+- Scraping depuis Plum Living
+- Disponible via l'interface de synchronisation Google Sheets
+
+### Méthode 2: Via CSV Typeform (recommandée)
+- Parse les CSV Typeform pour extraire les codes projets
+- Mapping automatique avec les requests via **NAME + DATE**
+- Récupération des prix depuis Plum Living avec authentification automatique
+- **Documentation complète** : Voir `docs/PRICE_FETCHING_FROM_CSV.md`
+
+**Utilisation rapide** :
+```bash
+# Récupération complète des prix
+npx tsx scripts/fetch-prices-from-csv.ts
+
+# Vérifier la progression
+npx tsx scripts/check-price-progress.ts
+```
 

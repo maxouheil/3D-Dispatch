@@ -6,6 +6,7 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { DashboardKPIs } from '@/components/admin/DashboardKPIs';
 import { ArtistBacklogSummary } from '@/components/admin/ArtistBacklogSummary';
 import { GoogleSheetsSync } from '@/components/admin/GoogleSheetsSync';
+import { isBacklogStatus, isOngoingStatus, isSentStatus, isWithinCurrentWeek, getCurrentWeekRange } from '@/lib/utils';
 
 export default function AdminDashboard() {
   const [requests, setRequests] = useState<Request[]>([]);
@@ -35,17 +36,30 @@ export default function AdminDashboard() {
       setRequests(requestsData);
       setArtists(artistsData);
 
-      // Calculate stats
-      const totalRequests = requestsData.length;
+      // Calculate stats with new rules:
+      // - Requests = backlog + ongoing (pas de filtre semaine)
+      // - Backlog = new + pending (pas de filtre semaine)
+      // - Ongoing = transmitted to 3D artist (pas de filtre semaine)
+      // - Sent = sent to client (avec filtre semaine en cours)
+      
+      // Backlog: all "new" + "pending" (no date filter)
+      const backlogRequests = requestsData.filter((r: Request) =>
+        isBacklogStatus(r.status)
+      ).length;
+
+      // Ongoing: transmitted to 3D artist (no date filter)
       const ongoingRequests = requestsData.filter(
-        (r: Request) => r.status === 'ongoing'
+        (r: Request) => isOngoingStatus(r.status)
       ).length;
-      const sentRequests = requestsData.filter(
-        (r: Request) => r.status === 'sent'
-      ).length;
-      const backlogRequests = requestsData.filter(
-        (r: Request) => r.status === 'new'
-      ).length;
+
+      // Requests = backlog + ongoing
+      const totalRequests = backlogRequests + ongoingRequests;
+
+      // Sent: sent to client (current week only)
+      const sentRequests = requestsData.filter((r: Request) => {
+        if (!r.date) return false;
+        return isSentStatus(r.status) && isWithinCurrentWeek(r.date);
+      }).length;
 
       setStats({
         totalRequests,
@@ -73,7 +87,12 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout>
-      <h1 className="text-3xl font-bold mb-6 text-gray-900">Admin</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Admin</h1>
+        <div className="text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
+          Semaine en cours: {getCurrentWeekRange()} (pour "Sent this week")
+        </div>
+      </div>
 
       <GoogleSheetsSync />
 

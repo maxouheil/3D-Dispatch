@@ -59,3 +59,5 @@ Nécessite un parsing personnalisé.
 Les prix sont au format **$XX** (ex: $10, $20, $30, $40)
 Nécessite de retirer le symbole $ et convertir en nombre.
 
+
+

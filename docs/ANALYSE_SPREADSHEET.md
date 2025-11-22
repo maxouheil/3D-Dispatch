@@ -130,3 +130,5 @@ Pour partager rapidement la structure de votre spreadsheet:
 
 **Note**: Le système est conçu pour être flexible et s'adapter à différentes structures de spreadsheets. Une fois que j'aurai les détails de votre spreadsheet, je pourrai ajuster le code en conséquence.
 
+
+

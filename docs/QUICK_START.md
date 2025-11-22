@@ -110,13 +110,37 @@ Après synchronisation réussie:
 - Vérifiez que l'ID du spreadsheet est correct dans `.env.local`
 - Vérifiez que le service account a accès au spreadsheet
 
+## 💰 Récupération des Prix
+
+### Nouvelle Méthode: Via CSV Typeform (Recommandée)
+
+Pour récupérer les prix des projets, utilisez la nouvelle méthode via CSV Typeform qui contourne les limitations Google Drive :
+
+```bash
+# Récupération complète des prix
+npx tsx scripts/fetch-prices-from-csv.ts
+
+# Vérifier la progression
+npx tsx scripts/check-price-progress.ts
+```
+
+**Avantages** :
+- ✅ Mapping automatique avec les requests via **NAME + DATE** (~73% de réussite)
+- ✅ Connexion automatique à Plum Living
+- ✅ Pas de dépendance aux permissions Google Drive
+
+**Documentation complète** : Voir [`docs/PRICE_FETCHING_FROM_CSV.md`](./PRICE_FETCHING_FROM_CSV.md)
+
 ## 📚 Documentation Complète
 
 - `docs/SETUP_GOOGLE_SHEETS.md` - Guide détaillé de configuration
 - `docs/MAPPING_FINAL.md` - Détails du mapping des colonnes
 - `docs/SPREADSHEET_ANALYSIS.md` - Analyse du spreadsheet
+- `docs/PRICE_FETCHING_FROM_CSV.md` - Récupération des prix via CSV Typeform
 
 ## ✨ Prêt à l'emploi!
 
 Une fois les credentials configurés, vous pouvez synchroniser vos données depuis Google Sheets vers votre application!
+
+
 

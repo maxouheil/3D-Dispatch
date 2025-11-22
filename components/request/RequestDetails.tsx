@@ -4,12 +4,16 @@ import { Request } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
+import { CSVRequestData } from '@/lib/csv-request-parser';
 
 interface RequestDetailsProps {
   request: Request;
+  csvData?: CSVRequestData | null;
+  csvLoading?: boolean;
+  csvError?: string | null;
 }
 
-export function RequestDetails({ request }: RequestDetailsProps) {
+export function RequestDetails({ request, csvData, csvLoading, csvError }: RequestDetailsProps) {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('fr-FR', {
@@ -114,7 +118,67 @@ export function RequestDetails({ request }: RequestDetailsProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* CSV Data Section */}
+      {csvData && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Données CSV</CardTitle>
+              <span className="text-xs text-gray-500">
+                {csvData.type} {csvData.isBicolor ? '(Bicolore)' : '(Monochrome)'}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {csvData.headers.map((header, index) => {
+                const value = csvData.data[header];
+                if (!value || value.trim() === '') return null;
+
+                return (
+                  <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
+                    <h4 className="text-sm font-medium text-gray-700 mb-1">{header}</h4>
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{value}</p>
+                  </div>
+                );
+              })}
+              {csvData.isBicolor && csvData.type === 'Client' && csvData.data['_specialColumnG'] && (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <h4 className="text-sm font-semibold text-blue-900 mb-1">
+                    Colonne G (Bicolore)
+                  </h4>
+                  <p className="text-sm text-blue-800">{csvData.data['_specialColumnG']}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {csvLoading && (
+        <Card>
+          <CardContent className="py-8">
+            <div className="text-center text-gray-500">
+              Chargement des données CSV...
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {csvError && !csvLoading && (
+        <Card>
+          <CardContent className="py-8">
+            <div className="text-center text-red-600">
+              <p className="font-medium mb-1">Erreur lors du chargement des données CSV</p>
+              <p className="text-sm text-gray-600">{csvError}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
+
+
 

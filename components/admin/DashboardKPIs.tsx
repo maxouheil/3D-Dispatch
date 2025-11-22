@@ -21,7 +21,7 @@ export function DashboardKPIs({ stats }: DashboardKPIsProps) {
       value: stats.ongoingRequests,
     },
     {
-      title: 'sent',
+      title: 'sent this week',
       value: stats.sentRequests,
     },
   ];

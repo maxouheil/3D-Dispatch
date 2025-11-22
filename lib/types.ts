@@ -32,6 +32,7 @@ export interface Request {
   description: string;
   thumbnail: string; // URL to thumbnail image
   renders: Render[];
+  projectCode?: string; // Code UUID du projet depuis Typeform (pour mapping avec les prix)
 }
 
 export interface Artist {

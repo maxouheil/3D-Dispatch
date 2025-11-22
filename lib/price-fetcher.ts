@@ -196,10 +196,163 @@ async function extractProjectCodeFromDoc(
 }
 
 /**
+ * Se connecte à Plum Living avec les credentials fournis
+ */
+export async function loginToPlumLiving(page: any): Promise<boolean> {
+  try {
+    const loginUrl = 'https://plum-living.com/fr/login';
+    await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Attendre que le formulaire de connexion soit chargé
+    await page.waitForTimeout(2000);
+
+    // Remplir le formulaire de connexion
+    const email = process.env.PLUM_LIVING_EMAIL || 'souheil@plum-living.com';
+    const password = process.env.PLUM_LIVING_PASSWORD || 'Lbooycz7';
+
+    // Trouver et remplir le champ email (essayer plusieurs sélecteurs)
+    const emailSelectors = [
+      'input[type="email"]',
+      'input[name="email"]',
+      'input[id*="email"]',
+      'input[placeholder*="email" i]',
+      'input[placeholder*="Email" i]',
+    ];
+
+    let emailFilled = false;
+    for (const selector of emailSelectors) {
+      try {
+        const emailInput = await page.$(selector);
+        if (emailInput) {
+          await emailInput.click({ clickCount: 3 }); // Sélectionner tout le texte existant
+          await emailInput.type(email, { delay: 100 });
+          emailFilled = true;
+          console.log(`Filled email using selector: ${selector}`);
+          break;
+        }
+      } catch (e) {
+        // Continue avec le prochain sélecteur
+      }
+    }
+
+    if (!emailFilled) {
+      console.warn('Could not find email input field');
+      return false;
+    }
+
+    // Trouver et remplir le champ password
+    await page.waitForTimeout(500);
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[name="password"]',
+      'input[id*="password"]',
+      'input[placeholder*="password" i]',
+      'input[placeholder*="Password" i]',
+      'input[placeholder*="mot de passe" i]',
+    ];
+
+    let passwordFilled = false;
+    for (const selector of passwordSelectors) {
+      try {
+        const passwordInput = await page.$(selector);
+        if (passwordInput) {
+          await passwordInput.click({ clickCount: 3 });
+          await passwordInput.type(password, { delay: 100 });
+          passwordFilled = true;
+          console.log(`Filled password using selector: ${selector}`);
+          break;
+        }
+      } catch (e) {
+        // Continue avec le prochain sélecteur
+      }
+    }
+
+    if (!passwordFilled) {
+      console.warn('Could not find password input field');
+      return false;
+    }
+
+    // Attendre un peu avant de cliquer
+    await page.waitForTimeout(1000);
+
+    // Cliquer sur le bouton de connexion
+    const submitSelectors = [
+      'button[type="submit"]',
+      'button:has-text("Se connecter")',
+      'button:has-text("Connexion")',
+      'button:has-text("Login")',
+      'form button',
+      'button[class*="submit"]',
+    ];
+
+    let buttonClicked = false;
+    for (const selector of submitSelectors) {
+      try {
+        const button = await page.$(selector);
+        if (button) {
+          await button.click();
+          buttonClicked = true;
+          console.log(`Clicked submit button using selector: ${selector}`);
+          break;
+        }
+      } catch (e) {
+        // Continue avec le prochain sélecteur
+      }
+    }
+
+    if (!buttonClicked) {
+      // Essayer d'appuyer sur Enter comme dernier recours
+      console.log('Trying Enter key as fallback');
+      await page.keyboard.press('Enter');
+    }
+
+    // Attendre la redirection après connexion
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {
+      // Si pas de navigation immédiate, attendre un peu
+      console.log('Waiting for navigation...');
+    });
+
+    await page.waitForTimeout(2000);
+
+    // Vérifier si la connexion a réussi (on ne devrait plus être sur /login)
+    const currentUrl = page.url();
+    console.log(`After login, current URL: ${currentUrl}`);
+    
+    if (currentUrl.includes('/login')) {
+      // Vérifier s'il y a un message d'erreur
+      const errorText = await page.evaluate(() => {
+        const body = document.body.textContent || '';
+        return body.includes('erreur') || body.includes('error') || body.includes('incorrect');
+      });
+      
+      if (errorText) {
+        console.warn('Login failed: error message detected on page');
+        return false;
+      }
+      
+      console.warn('Still on login page, but no error detected. May need more time.');
+      // Attendre encore un peu
+      await page.waitForTimeout(3000);
+      const finalUrl = page.url();
+      if (finalUrl.includes('/login')) {
+        return false;
+      }
+    }
+
+    console.log('Successfully logged in to Plum Living');
+    return true;
+  } catch (error: any) {
+    console.error(`Error logging in to Plum Living: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Scrape le prix depuis la page Plum Living
  * Utilise Puppeteer pour gérer le JavaScript côté client
+ * Se connecte automatiquement si nécessaire
  */
-async function fetchPriceFromPlumLiving(projectCode: string): Promise<number> {
+export async function fetchPriceFromPlumLiving(projectCode: string): Promise<number> {
   try {
     // Vérifier si puppeteer est disponible
     let puppeteer: any;
@@ -222,69 +375,181 @@ async function fetchPriceFromPlumLiving(projectCode: string): Promise<number> {
 
     try {
       const page = await browser.newPage();
+      
+      // Essayer d'accéder directement à la page du projet
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-
-      // Attendre que la page soit chargée
-      await page.waitForTimeout(2000);
-
-      // Chercher l'élément avec la classe spécifiée
-      // Note: Les classes CSS dynamiques peuvent varier, on essaie plusieurs sélecteurs
-      const altSelectors = [
-        '.mantine-Text-root.css-lludu6.mantine-nzjykg',
-        '.mantine-Text-root.mantine-nzjykg',
-        '[class*="mantine-Text-root"][class*="mantine-nzjykg"]',
-        '.mantine-nzjykg',
-        '[class*="mantine-nzjykg"]',
-      ];
-
-      let priceElement = null;
-      for (const selector of altSelectors) {
-        priceElement = await page.$(selector);
-        if (priceElement) {
-          console.log(`Found price element using selector: ${selector}`);
-          break;
+      
+      // Vérifier si on est redirigé vers la page de connexion
+      const currentUrl = page.url();
+      if (currentUrl.includes('/login')) {
+        console.log('Redirected to login page, attempting to log in...');
+        const loginSuccess = await loginToPlumLiving(page);
+        if (!loginSuccess) {
+          console.warn('Failed to log in, cannot fetch price');
+          return 0;
         }
+        // Après connexion, retourner à la page du projet
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
       }
 
-      if (!priceElement) {
-        // Si toujours rien, chercher tous les éléments avec "mantine-Text-root"
-        const allTextElements = await page.$$('.mantine-Text-root');
-        for (const element of allTextElements) {
-          const text = await page.evaluate((el) => el.textContent, element);
-          const price = parsePriceFromText(text || '');
-          if (price > 0) {
-            console.log(`Found price in text element: ${text}`);
-            return price;
-          }
-        }
-
-        // Dernier recours: chercher tous les éléments avec "mantine-nzjykg"
-        const allNzjykgElements = await page.$$('[class*="mantine-nzjykg"]');
-        for (const element of allNzjykgElements) {
-          const text = await page.evaluate((el) => el.textContent, element);
-          const price = parsePriceFromText(text || '');
-          if (price > 0) {
-            console.log(`Found price in nzjykg element: ${text}`);
-            return price;
-          }
-        }
-
-        console.warn(`Price element not found on page ${url}`);
+      // Vérifier si on est sur la bonne page (pas une page de connexion ou d'erreur)
+      const pageTitle = await page.title();
+      const pageUrl = page.url();
+      console.log(`Page title: ${pageTitle}, URL: ${pageUrl}`);
+      
+      // Vérifier si la page contient des indicateurs qu'on est sur une page de projet
+      const pageContent = await page.evaluate(() => document.body.textContent || '');
+      if (pageContent.includes('Se connecter') && !pageContent.includes('Articles Plum Living') && !pageContent.includes('Articles Ikea')) {
+        console.warn(`Page appears to be a login/error page, not a project page`);
+        // Prendre un screenshot pour debug
+        await page.screenshot({ path: `/tmp/plum-living-login-${projectCode}.png` }).catch(() => {});
         return 0;
       }
 
-      const priceText = await page.evaluate(
-        (el) => el.textContent,
-        priceElement
-      );
-      const price = parsePriceFromText(priceText || '');
+      // Attendre que la page soit chargée et que les éléments dynamiques soient rendus
+      await page.waitForTimeout(4000);
+
+      // D'après le screenshot, le prix total est dans un conteneur avec mantine-Stack-root
+      // Chercher d'abord dans ce conteneur spécifique
+      let price = 0;
+      let priceText = '';
+
+      // Stratégie 1: Chercher le prix total dans la section de résumé
+      // D'après le screenshot, le prix total "5 938 €" est dans un élément avec mantine-nzjykg
+      // C'est généralement le plus grand nombre formaté avec espaces dans la section de résumé
+      const priceSummarySelectors = [
+        '[class*="mantine-nzjykg"]', // Classe spécifique du prix total d'après le screenshot
+      ];
+
+      const allPotentialPrices: Array<{ text: string; price: number; element: any }> = [];
+
+      for (const selector of priceSummarySelectors) {
+        try {
+          const elements = await page.$$(selector);
+          console.log(`  Found ${elements.length} elements with selector: ${selector}`);
+          
+          for (const element of elements) {
+            const text = await page.evaluate((el) => el.textContent?.trim(), element);
+            if (text && text.includes('€')) {
+              // Le prix total devrait être formaté avec des espaces comme séparateurs de milliers (ex: "5 938 €")
+              const parsedPrice = parsePriceFromText(text);
+              if (parsedPrice > 1000 && parsedPrice < 1000000) {
+                // Vérifier si c'est bien formaté avec espaces (indicateur de prix total)
+                // Le prix total a généralement le format "X XXX €" ou "X XXX€"
+                const hasSpaceFormat = text.match(/\d+\s+\d{3}\s*€/);
+                allPotentialPrices.push({ text, price: parsedPrice, element });
+                console.log(`  Found potential price: ${parsedPrice} from "${text}" (has space format: ${!!hasSpaceFormat})`);
+              }
+            }
+          }
+        } catch (e) {
+          // Continue avec le prochain sélecteur
+        }
+      }
+
+      // Trier par prix décroissant et prendre le plus élevé (probablement le total)
+      if (allPotentialPrices.length > 0) {
+        allPotentialPrices.sort((a, b) => b.price - a.price);
+        // Le prix total est généralement le plus grand nombre
+        const totalPrice = allPotentialPrices[0];
+        console.log(`Found total price: ${totalPrice.price} from "${totalPrice.text}"`);
+        return totalPrice.price;
+      }
+
+      // Stratégie 2: Chercher dans le conteneur Stack et trouver le plus grand nombre raisonnable
+      const stackContainers = await page.$$('[class*="mantine-Stack-root"]');
+      console.log(`Found ${stackContainers.length} Stack containers`);
+      
+      const allPrices: Array<{ text: string; price: number }> = [];
+      
+      for (const container of stackContainers) {
+        // Chercher tous les éléments texte dans ce conteneur
+        const allTextElements = await container.$$('[class*="mantine-Text-root"]');
+        
+        for (const textEl of allTextElements) {
+          const text = await page.evaluate((el) => el.textContent?.trim(), textEl);
+          if (text && text.includes('€')) {
+            const parsedPrice = parsePriceFromText(text);
+            // Filtrer les prix raisonnables (entre 1000 et 1000000)
+            if (parsedPrice > 1000 && parsedPrice < 1000000) {
+              allPrices.push({ text, price: parsedPrice });
+            }
+          }
+        }
+      }
+
+      // Trier par prix décroissant et prendre le plus élevé (probablement le total)
+      if (allPrices.length > 0) {
+        allPrices.sort((a, b) => b.price - a.price);
+        const bestMatch = allPrices[0];
+        console.log(`Found total price from Stack container: ${bestMatch.price} from "${bestMatch.text.substring(0, 50)}"`);
+        return bestMatch.price;
+      }
 
       if (price > 0) {
-        console.log(`Found price: ${price} from text: ${priceText}`);
+        console.log(`Found price in Stack container: ${price} from text: "${priceText}"`);
         return price;
       }
 
-      console.warn(`Could not parse price from text: ${priceText}`);
+      // Stratégie 2: Chercher directement les éléments avec mantine-nzjykg (classe du prix total)
+      const altSelectors = [
+        '[class*="mantine-nzjykg"]',
+        '.mantine-Text-root[class*="mantine-nzjykg"]',
+        '[class*="mantine-Text-root"][class*="mantine-nzjykg"]',
+      ];
+
+      for (const selector of altSelectors) {
+        try {
+          const elements = await page.$$(selector);
+          console.log(`Found ${elements.length} elements with selector: ${selector}`);
+          
+          for (const element of elements) {
+            const text = await page.evaluate((el) => el.textContent, element);
+            const parsedPrice = parsePriceFromText(text || '');
+            // Le prix total devrait être le plus grand nombre trouvé (généralement > 1000)
+            if (parsedPrice > price && parsedPrice > 1000) {
+              price = parsedPrice;
+              priceText = text || '';
+              console.log(`Found price with selector ${selector}: ${price} from text: "${text}"`);
+            }
+          }
+        } catch (e) {
+          // Continue avec le prochain sélecteur
+        }
+      }
+
+      if (price > 0) {
+        return price;
+      }
+
+      // Stratégie 3: Chercher tous les éléments avec mantine-Text-root contenant "€" et trouver le plus grand nombre raisonnable
+      const allTextElements = await page.$$('[class*="mantine-Text-root"]');
+      console.log(`Found ${allTextElements.length} elements with mantine-Text-root class`);
+      
+      const textPrices: Array<{ text: string; price: number }> = [];
+      
+      for (const element of allTextElements) {
+        const text = await page.evaluate((el) => el.textContent?.trim(), element);
+        if (text && text.includes('€')) {
+          const parsedPrice = parsePriceFromText(text);
+          // Filtrer les prix raisonnables (entre 1000 et 1000000)
+          if (parsedPrice > 1000 && parsedPrice < 1000000) {
+            textPrices.push({ text, price: parsedPrice });
+          }
+        }
+      }
+
+      if (textPrices.length > 0) {
+        // Trier par prix décroissant et prendre le plus élevé (probablement le total)
+        textPrices.sort((a, b) => b.price - a.price);
+        const bestMatch = textPrices[0];
+        console.log(`Found total price in text element: ${bestMatch.price} from text: "${bestMatch.text.substring(0, 50)}"`);
+        return bestMatch.price;
+      }
+
+      console.warn(`Price element not found on page ${url}`);
+      // Prendre un screenshot pour debug
+      await page.screenshot({ path: `/tmp/plum-living-debug-${projectCode}.png` }).catch(() => {});
       return 0;
     } finally {
       await browser.close();
@@ -297,16 +562,29 @@ async function fetchPriceFromPlumLiving(projectCode: string): Promise<number> {
 
 /**
  * Parse un prix depuis un texte
- * Supporte les formats: "€100", "100€", "100", "$100", etc.
+ * Supporte les formats: "€100", "100€", "100", "$100", "5 938 €", etc.
  */
 function parsePriceFromText(text: string): number {
   if (!text) return 0;
 
-  // Retirer tous les caractères sauf chiffres, points et virgules
-  const cleaned = text.replace(/[^\d.,]/g, '');
+  // Retirer tous les caractères sauf chiffres, points, virgules et espaces
+  // Les prix peuvent avoir des espaces comme séparateurs de milliers (ex: "5 938 €")
+  const cleaned = text.replace(/[^\d.,\s]/g, '');
   
-  // Remplacer la virgule par un point pour le parsing
-  const normalized = cleaned.replace(',', '.');
+  // Retirer les espaces (séparateurs de milliers)
+  const withoutSpaces = cleaned.replace(/\s/g, '');
+  
+  // Remplacer la virgule par un point pour le parsing (si c'est un séparateur décimal)
+  // Note: En français, la virgule est le séparateur décimal, mais ici on assume que c'est un point
+  // Si le nombre a une virgule et un point, garder le point comme séparateur décimal
+  let normalized = withoutSpaces;
+  if (withoutSpaces.includes(',') && !withoutSpaces.includes('.')) {
+    // Seulement une virgule, probablement un séparateur décimal
+    normalized = withoutSpaces.replace(',', '.');
+  } else if (withoutSpaces.includes(',') && withoutSpaces.includes('.')) {
+    // Les deux présents, retirer la virgule (probablement séparateur de milliers)
+    normalized = withoutSpaces.replace(/,/g, '');
+  }
   
   const price = parseFloat(normalized);
   return isNaN(price) ? 0 : price;
@@ -412,6 +690,61 @@ export async function fetchPricesForRequests(
   }
 
   console.log(`Fetched prices for ${results.size} requests`);
+  return results;
+}
+
+/**
+ * Récupère les prix depuis les codes projets du CSV Typeform
+ * 
+ * @param projectCodes - Map des codes projets vers leurs données (depuis parseTypeformCSV)
+ * @param maxConcurrent - Nombre maximum de requêtes simultanées (défaut: 5)
+ * @param useExistingPrices - Si true, utilise les prix existants du CSV comme fallback (défaut: false)
+ * @returns Map des codes projets vers leurs prix
+ */
+export async function fetchPricesFromTypeformCSV(
+  projectCodes: Map<string, { type: 'PP' | 'Client'; price?: number; email?: string }>,
+  maxConcurrent: number = 5,
+  useExistingPrices: boolean = false
+): Promise<Map<string, number>> {
+  const results = new Map<string, number>();
+  const projectCodesArray = Array.from(projectCodes.entries());
+
+  console.log(
+    `Fetching prices for ${projectCodesArray.length} project codes (max ${maxConcurrent} concurrent)`
+  );
+
+  // Traiter par batch pour limiter la concurrence
+  for (let i = 0; i < projectCodesArray.length; i += maxConcurrent) {
+    const batch = projectCodesArray.slice(i, i + maxConcurrent);
+    
+    const batchPromises = batch.map(async ([projectCode, data]) => {
+      // Si useExistingPrices est true et qu'on a déjà un prix, l'utiliser
+      if (useExistingPrices && data.price !== undefined && data.price > 0) {
+        console.log(`Using existing price ${data.price} for project ${projectCode}`);
+        return { projectCode, price: data.price };
+      }
+
+      // Sinon, scraper depuis Plum Living
+      const price = await fetchPriceFromPlumLiving(projectCode);
+      return { projectCode, price };
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    
+    batchResults.forEach(({ projectCode, price }) => {
+      if (price > 0) {
+        results.set(projectCode, price);
+      }
+    });
+
+    // Délai entre les batches pour éviter le rate limiting
+    if (i + maxConcurrent < projectCodesArray.length) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  const successCount = Array.from(results.values()).filter(p => p > 0).length;
+  console.log(`Fetched prices for ${successCount} out of ${projectCodesArray.length} project codes`);
   return results;
 }
 

@@ -5,7 +5,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '1',
     name: 'Vitalii',
-    targetPerWeek: 8,
+    targetPerWeek: 30,
     currentWeekCompleted: 6,
     backlogCount: 3,
     ongoingCount: 2,
@@ -15,7 +15,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '2',
     name: 'Vladyslav',
-    targetPerWeek: 7,
+    targetPerWeek: 20,
     currentWeekCompleted: 5,
     backlogCount: 4,
     ongoingCount: 3,
@@ -25,7 +25,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '3',
     name: 'Xuan',
-    targetPerWeek: 9,
+    targetPerWeek: 20,
     currentWeekCompleted: 7,
     backlogCount: 2,
     ongoingCount: 2,
@@ -35,7 +35,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '4',
     name: 'Mychailo',
-    targetPerWeek: 6,
+    targetPerWeek: 15,
     currentWeekCompleted: 4,
     backlogCount: 5,
     ongoingCount: 1,
@@ -45,7 +45,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '5',
     name: 'Konstantin',
-    targetPerWeek: 8,
+    targetPerWeek: 10,
     currentWeekCompleted: 6,
     backlogCount: 3,
     ongoingCount: 3,
@@ -55,7 +55,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '6',
     name: 'Sarabjot',
-    targetPerWeek: 7,
+    targetPerWeek: 10,
     currentWeekCompleted: 5,
     backlogCount: 4,
     ongoingCount: 2,
@@ -65,7 +65,7 @@ export const dummyArtists: Artist[] = [
   {
     id: '7',
     name: 'Mustafa',
-    targetPerWeek: 8,
+    targetPerWeek: 10,
     currentWeekCompleted: 7,
     backlogCount: 2,
     ongoingCount: 1,
@@ -163,4 +163,6 @@ export function getRequestsByArtist(artistId: string): Request[] {
 export function getRequestsByStatus(status: RequestStatus): Request[] {
   return dummyRequests.filter(req => req.status === status);
 }
+
+
 

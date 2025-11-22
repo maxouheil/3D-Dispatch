@@ -53,7 +53,7 @@ Ce document récapitule toutes les mises à jour et améliorations apportées au
 
 ## 💰 Récupération automatique des prix
 
-### Fonctionnalités
+### Méthode 1: Via Google Drive (ancienne méthode)
 
 1. **Processus de récupération**
    - Extraction de l'ID de dossier depuis les liens Google Drive
@@ -72,6 +72,47 @@ Ce document récapitule toutes les mises à jour et améliorations apportées au
    - Option "Récupérer les prix" dans l'interface de synchronisation
    - Mise à jour automatique des prix dans les requêtes
    - Statistiques de récupération affichées dans l'UI
+
+### Méthode 2: Via CSV Typeform (nouvelle méthode - recommandée)
+
+**Avantages** : Contourne les limitations Google Drive, plus rapide et fiable
+
+1. **Processus de récupération**
+   - Parse les CSV Typeform (PP et Client) pour extraire les codes projets
+   - Mapping automatique avec les requests existantes via **NAME + DATE**
+   - Connexion automatique à Plum Living avec authentification
+   - Scraping du prix total depuis la page du projet
+   - Mise à jour automatique des requests avec `projectCode` et prix
+
+2. **Structure des CSV**
+   - **CSV PP** : Colonne AT (index 45) = code projet, Colonne 39 = Last name, Colonne 51 = Submit Date
+   - **CSV Client** : Colonne W (index 22) = code projet, Colonne 14 = Name, Colonne 29 = Submit Date
+   - Extraction automatique des emails et dates pour le mapping
+
+3. **Mapping intelligent**
+   - **Stratégie principale** : NAME + DATE (normalisé pour correspondance exacte)
+   - **Taux de réussite** : ~73% des projets matchés automatiquement
+   - Filtre par type (PP vs Client) pour éviter les faux positifs
+   - Fallback sur email + date si nom non disponible
+
+4. **Authentification automatique**
+   - Détection de redirection vers page de login
+   - Remplissage automatique du formulaire
+   - Variables d'environnement supportées : `PLUM_LIVING_EMAIL`, `PLUM_LIVING_PASSWORD`
+
+5. **Scripts disponibles**
+   - `scripts/fetch-prices-from-csv.ts` - Récupération complète pour tous les projets
+   - `scripts/test-csv-price-fetcher.ts` - Test avec 2 projets
+   - `scripts/check-price-progress.ts` - Monitoring de la progression
+   - Route API : `POST /api/prices/from-csv`
+
+6. **Performance**
+   - 5 projets en parallèle (maxConcurrent)
+   - ~10-15 secondes par projet
+   - Estimation : ~2-3 heures pour 3058 projets
+   - Logs détaillés dans `/tmp/fetch-prices.log`
+
+**Documentation complète** : Voir `docs/PRICE_FETCHING_FROM_CSV.md`
 
 ---
 
@@ -274,6 +315,49 @@ GOOGLE_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account",...}'
 
 ---
 
+---
+
+## 📊 Mise à jour - Système de statistiques et progress bars (Novembre 2024)
+
+### ✅ Nouvelles règles de calcul des statistiques
+
+1. **KPIs Dashboard**
+   - **Requests** = Backlog + Ongoing (pas de filtre semaine)
+   - **Backlog** = toutes les requêtes "new" + "pending" (pas de filtre semaine)
+   - **Ongoing** = toutes les requêtes "transmitted to 3D artist" (pas de filtre semaine)
+   - **Sent this week** = toutes les requêtes "sent to client" (avec filtre semaine en cours)
+
+2. **Tableau des artistes**
+   - Tri automatique par target/week (décroissant)
+   - Colonnes : Name, Sent this week, Ongoing, Progress, Target/week
+   - Suppression des colonnes Backlog et Requests
+
+3. **Progress bar combinée**
+   - Affichage de deux segments dans une seule barre :
+     - **Vert** : Sent this week (premier segment)
+     - **Orange clair** : Ongoing (second segment)
+   - Largeur totale = (Sent this week + Ongoing) / Target per week
+   - Affichage du pourcentage de progression à côté de la barre
+
+4. **Targets par semaine mises à jour**
+   - Vitalii : 30
+   - Xuan : 20
+   - Vladyslav : 20
+   - Mychailo : 15
+   - Konstantin, Sarabjot, Mustafa, Ahsan, Tagyr : 10
+
+### 📁 Fichiers modifiés
+
+- `lib/utils.ts` - Nouvelles fonctions de calcul de statut
+- `app/admin/page.tsx` - Nouvelles règles de calcul des KPIs
+- `app/api/artists/route.ts` - Application des nouvelles règles pour les artistes
+- `app/api/artists/[id]/backlog/route.ts` - Application des nouvelles règles pour le backlog
+- `components/admin/ArtistBacklogSummary.tsx` - Nouveau tableau avec progress bar combinée
+- `data/artists.json` - Mise à jour des targets par semaine
+- `lib/dummy-data.ts` - Mise à jour des données par défaut
+
+---
+
 ## 🚀 Prochaines étapes possibles
 
 ### Améliorations futures
@@ -307,6 +391,6 @@ GOOGLE_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account",...}'
 
 ---
 
-**Date de dernière mise à jour:** $(date +%Y-%m-%d)
-**Version:** 1.0.0
+**Date de dernière mise à jour:** 2024-11-22
+**Version:** 1.1.0
 

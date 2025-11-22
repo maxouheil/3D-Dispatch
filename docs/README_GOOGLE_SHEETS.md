@@ -142,3 +142,5 @@ Vérifiez que `.env.local` contient `GOOGLE_SHEETS_ID`
 - Les modifications dans le frontend ne sont pas encore synchronisées vers Google Sheets (écriture unidirectionnelle pour l'instant)
 - Pour une synchronisation bidirectionnelle, il faudrait implémenter l'écriture vers Google Sheets
 
+
+

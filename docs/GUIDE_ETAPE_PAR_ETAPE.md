@@ -260,3 +260,5 @@ Pour toute question, consultez:
 - `docs/SETUP_GOOGLE_SHEETS.md` - Guide détaillé
 - `docs/MAPPING_FINAL.md` - Détails du mapping
 
+
+

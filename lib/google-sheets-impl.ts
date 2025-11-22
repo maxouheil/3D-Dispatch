@@ -125,6 +125,51 @@ function parseDate(dateStr: string | number): string {
 }
 
 /**
+ * Extrait le prénom d'un email PP
+ * Exemples: 
+ * - "oceane.dupont@plum-living.com" → "Oceane"
+ * - "cecile.martin@plum-living.com" → "Cecile"
+ * - "marie.julie.bernard@plum-living.com" → "Marie Julie"
+ * - "hakeem.ali@plum-living.com" → "Hakeem"
+ * - "justine.moreau@plum-living.com" → "Justine"
+ */
+function extractFirstNameFromEmail(email: string): string {
+  if (!email) return '';
+  
+  // Retirer les espaces et convertir en minuscules
+  const cleaned = email.trim().toLowerCase();
+  
+  // Extraire la partie avant le @
+  const localPart = cleaned.split('@')[0];
+  
+  // Séparer par les points
+  const parts = localPart.split('.').filter(p => p.length > 0);
+  
+  if (parts.length === 0) return '';
+  
+  // Liste de prénoms communs pour détecter les prénoms composés
+  const commonFirstNames = ['marie', 'jean', 'pierre', 'anne', 'sophie', 'thomas', 'lucie', 'paul', 'louis'];
+  
+  // Si on a 2 parties ou plus
+  if (parts.length >= 2) {
+    const firstPart = parts[0];
+    const secondPart = parts[1];
+    
+    // Si la deuxième partie est un prénom commun ou fait moins de 8 caractères (probablement un prénom)
+    // ET qu'on a 3 parties ou plus (donc la 3ème est probablement le nom de famille)
+    if (parts.length >= 3 && (commonFirstNames.includes(secondPart) || secondPart.length <= 8) && !/\d/.test(secondPart)) {
+      // Prénom composé : "marie.julie.bernard" → "Marie Julie"
+      return (firstPart.charAt(0).toUpperCase() + firstPart.slice(1)) + ' ' + 
+             (secondPart.charAt(0).toUpperCase() + secondPart.slice(1));
+    }
+  }
+  
+  // Sinon, prendre juste le premier prénom
+  const firstName = parts[0];
+  return firstName.charAt(0).toUpperCase() + firstName.slice(1);
+}
+
+/**
  * Extrait le numéro de request depuis le format "REQUEST_233_GORKA" ou "PP_REQUEST_2468_AMANDINE ROUSSEAU" ou "Client_105"
  */
 function extractRequestNumber(requestStr: string): number {
@@ -378,6 +423,8 @@ export async function syncFromGoogleSheets(
         
         const name = row[2]?.toString().trim() || '';
         const ppEmail = row[4]?.toString().trim() || '';
+        // Extraire le prénom depuis l'email PP
+        const ppName = ppEmail ? extractFirstNameFromEmail(ppEmail) : '';
         const dateRaw = row[5];
         // Récupérer la valeur brute de STATUS depuis la colonne détectée
         const statusRaw = statusColIndex >= 0 ? (row[statusColIndex]?.toString().trim() || '') : '';
@@ -388,14 +435,14 @@ export async function syncFromGoogleSheets(
         
         // Debug: afficher les valeurs brutes pour les premières lignes
         if (ppCount < 5) {
-          console.log(`PP row ${i + 1} - STATUS raw: "${statusRaw}" → mapped: "${mapStatus(statusRaw)}"`);
+          console.log(`PP row ${i + 1} - Email: "${ppEmail}" → Prénom: "${ppName}", STATUS raw: "${statusRaw}" → mapped: "${mapStatus(statusRaw)}"`);
         }
         
         const request: Request = {
           id: generateRequestId(requestStr, 'PP'),
           number: extractRequestNumber(requestStr),
           clientName: name,
-          ppName: ppEmail,
+          ppName: ppName,
           type: 'PP',
           date: parseDate(dateRaw),
           status: mapStatus(statusRaw), // Mapper vers le type RequestStatus
@@ -657,8 +704,34 @@ export async function syncFromGoogleSheets(
   debugInfo.duplicateStats = duplicateStats;
   console.log(`Deduplication: ${duplicateStats.total} total requests, ${duplicateStats.duplicates} duplicates removed, ${uniqueRequests.length} unique requests`);
 
-  // Trier par date (plus récent d'abord)
+  // Fonction helper pour vérifier si une requête doit être à la fin
+  const shouldBeAtEnd = (req: Request): boolean => {
+    const statusLower = (req.status || '').toLowerCase().trim();
+    const isCancelled = statusLower.includes('cancel') || statusLower.includes('annulé') || statusLower.includes('annule');
+    const hasInvalidDate = !req.date || isNaN(new Date(req.date).getTime());
+    return isCancelled || hasInvalidDate;
+  };
+
+  // Trier par date (plus récent d'abord), mais placer les cancelled/sans date à la fin
   const requests = uniqueRequests.sort((a, b) => {
+    const aAtEnd = shouldBeAtEnd(a);
+    const bAtEnd = shouldBeAtEnd(b);
+    
+    // Si l'une est à la fin et l'autre non, celle à la fin va après
+    if (aAtEnd && !bAtEnd) return 1;
+    if (!aAtEnd && bAtEnd) return -1;
+    
+    // Si les deux sont à la fin, les trier entre elles par date (si disponible) ou par numéro
+    if (aAtEnd && bAtEnd) {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      if (dateA && dateB) {
+        return dateB - dateA; // Plus récent d'abord parmi les cancelled
+      }
+      return b.number - a.number; // Sinon par numéro décroissant
+    }
+
+    // Tri normal pour les requêtes non-cancelled avec date valide
     const dateA = new Date(a.date).getTime();
     const dateB = new Date(b.date).getTime();
     return dateB - dateA; // Décroissant (plus récent en premier)

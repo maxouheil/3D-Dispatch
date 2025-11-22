@@ -5,7 +5,8 @@ import { Request, Artist } from '@/lib/types';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { formatRequestNumber, formatDateShort } from '@/lib/format-utils';
 import { getArtistFlag } from '@/lib/artist-flags';
-import { Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { getCurrentWeekRange } from '@/lib/utils';
+import { Search, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown } from 'lucide-react';
 
 export default function RequestsPage() {
   const [requests, setRequests] = useState<Request[]>([]);
@@ -13,6 +14,7 @@ export default function RequestsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [artistFilter, setArtistFilter] = useState<string>('');
+  const [priceFilter, setPriceFilter] = useState<string>('');
   const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -85,6 +87,8 @@ export default function RequestsPage() {
       correction: 'bg-yellow-100 text-yellow-700 border-yellow-300',
       sent: 'bg-green-100 text-green-700 border-green-300',
       transmitted: 'bg-purple-100 text-purple-700 border-purple-300',
+      canceled: 'bg-red-100 text-red-700 border-red-300',
+      cancelled: 'bg-red-100 text-red-700 border-red-300',
     };
     
     // Si c'est un statut standard, utiliser son style
@@ -114,6 +118,10 @@ export default function RequestsPage() {
     // Transmitted to 3d artist ou variantes
     if (statusLower.includes('transmitted') || statusLower.includes('transmis') || statusLower.includes('to 3d') || statusLower.includes('to artist')) {
       return styles.transmitted;
+    }
+    // Canceled/Cancelled en rouge
+    if (statusLower.includes('cancel') || statusLower.includes('annulé') || statusLower.includes('annule')) {
+      return styles.canceled;
     }
     
     // Par défaut, style gris pour les valeurs inconnues
@@ -149,7 +157,7 @@ export default function RequestsPage() {
     }
   };
 
-  // Filtrer les requêtes selon les critères
+  // Filtrer les requêtes selon les critères (pas de filtre de semaine)
   const filteredRequests = useMemo(() => {
     return requests.filter(request => {
       // Filtre par recherche texte
@@ -176,9 +184,28 @@ export default function RequestsPage() {
         if (artistFilter !== 'unassigned' && request.assignedTo !== artistFilter) return false;
       }
 
+      // Filtre par prix
+      if (priceFilter) {
+        const price = request.price || 0;
+        switch (priceFilter) {
+          case '0-1000':
+            if (price < 0 || price > 1000) return false;
+            break;
+          case '1000-3000':
+            if (price < 1000 || price > 3000) return false;
+            break;
+          case '3000-5000':
+            if (price < 3000 || price > 5000) return false;
+            break;
+          case '5000+':
+            if (price < 5000) return false;
+            break;
+        }
+      }
+
       return true;
     });
-  }, [requests, searchQuery, statusFilter, artistFilter]);
+  }, [requests, searchQuery, statusFilter, artistFilter, priceFilter]);
 
   // Ensuite trier et dédupliquer par ID
   const sortedRequests = useMemo(() => {
@@ -190,8 +217,34 @@ export default function RequestsPage() {
       return acc;
     }, [] as Request[]);
 
+    // Fonction helper pour vérifier si une requête doit être à la fin
+    const shouldBeAtEnd = (req: Request): boolean => {
+      const statusLower = (req.status || '').toLowerCase().trim();
+      const isCancelled = statusLower.includes('cancel') || statusLower.includes('annulé') || statusLower.includes('annule');
+      const hasInvalidDate = !req.date || isNaN(new Date(req.date).getTime());
+      return isCancelled || hasInvalidDate;
+    };
+
     // Trier
     const sorted = [...uniqueRequests].sort((a, b) => {
+      const aAtEnd = shouldBeAtEnd(a);
+      const bAtEnd = shouldBeAtEnd(b);
+      
+      // Si l'une est à la fin et l'autre non, celle à la fin va après
+      if (aAtEnd && !bAtEnd) return 1;
+      if (!aAtEnd && bAtEnd) return -1;
+      
+      // Si les deux sont à la fin, les trier entre elles par date (si disponible) ou par numéro
+      if (aAtEnd && bAtEnd) {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        if (dateA && dateB) {
+          return dateB - dateA; // Plus récent d'abord parmi les cancelled
+        }
+        return b.number - a.number; // Sinon par numéro décroissant
+      }
+
+      // Tri normal pour les requêtes non-cancelled avec date valide
       if (!sortColumn) {
         // Par défaut, trier par date (plus récent d'abord)
         const dateA = new Date(a.date).getTime();
@@ -238,7 +291,12 @@ export default function RequestsPage() {
 
   return (
     <AdminLayout>
-      <h1 className="text-3xl font-bold mb-6 text-gray-900">Requests</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Requests</h1>
+        <div className="text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
+          Semaine en cours: {getCurrentWeekRange()} (pour "Sent this week")
+        </div>
+      </div>
 
       <div className="mb-6 space-y-4">
         <div className="relative">
@@ -251,15 +309,45 @@ export default function RequestsPage() {
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Status</label>
+        <div className="flex gap-3">
+          {/* Filtre Artiste */}
+          <div className="relative inline-block">
+            <select
+              value={artistFilter}
+              onChange={(e) => setArtistFilter(e.target.value)}
+              className="appearance-none px-4 py-2 pr-8 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm cursor-pointer min-w-[140px] relative z-10"
+              style={{ color: artistFilter ? 'transparent' : 'inherit' }}
+            >
+              <option value="">To assign</option>
+              {artists.map((artist) => (
+                <option key={artist.id} value={artist.id}>
+                  {artist.name}
+                </option>
+              ))}
+            </select>
+            {artistFilter && (
+              <div className="absolute left-4 top-1/2 transform -translate-y-1/2 pointer-events-none z-0 flex items-center gap-1 text-sm">
+                {(() => {
+                  const selected = artists.find(a => a.id === artistFilter);
+                  return selected ? (
+                    <>
+                      {selected.name} {getArtistFlag(selected.name)}
+                    </>
+                  ) : null;
+                })()}
+              </div>
+            )}
+            <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
+          </div>
+
+          {/* Filtre Status */}
+          <div className="relative inline-block">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              className="appearance-none px-4 py-2 pr-8 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm cursor-pointer min-w-[120px]"
             >
-              <option value="">All statuses</option>
+              <option value="">Status</option>
               <option value="new">new</option>
               {uniqueStatuses.map((status) => (
                 <option key={status} value={status}>
@@ -267,22 +355,23 @@ export default function RequestsPage() {
                 </option>
               ))}
             </select>
+            <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Filter by 3D Artist</label>
+
+          {/* Filtre Prix */}
+          <div className="relative inline-block">
             <select
-              value={artistFilter}
-              onChange={(e) => setArtistFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              value={priceFilter}
+              onChange={(e) => setPriceFilter(e.target.value)}
+              className="appearance-none px-4 py-2 pr-8 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm cursor-pointer min-w-[120px]"
             >
-              <option value="">All artists</option>
-              <option value="unassigned">Unassigned</option>
-              {artists.map((artist) => (
-                <option key={artist.id} value={artist.id}>
-                  {artist.name}
-                </option>
-              ))}
+              <option value="">Budget</option>
+              <option value="0-1000">0 - 1 000 €</option>
+              <option value="1000-3000">1 000 - 3 000 €</option>
+              <option value="3000-5000">3 000 - 5 000 €</option>
+              <option value="5000+">5 000 € +</option>
             </select>
+            <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
         </div>
       </div>

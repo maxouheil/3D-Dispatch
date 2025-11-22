@@ -179,3 +179,34 @@ Pour finaliser l'analyse et créer l'implémentation complète, j'ai besoin de:
 - Ou me donner la liste des colonnes et exemples de données
 - Ou exporter un CSV/JSON et le partager
 
+---
+
+## 💰 Récupération des Prix
+
+### Méthode Recommandée: Via CSV Typeform
+
+Le système supporte maintenant une nouvelle méthode de récupération des prix qui contourne les limitations Google Drive en utilisant directement les CSV Typeform.
+
+**Documentation complète** : Voir [`docs/PRICE_FETCHING_FROM_CSV.md`](./PRICE_FETCHING_FROM_CSV.md)
+
+**Avantages** :
+- ✅ Pas de dépendance aux permissions Google Drive
+- ✅ Mapping automatique avec les requests via **NAME + DATE** (~73% de réussite)
+- ✅ Connexion automatique à Plum Living avec authentification
+- ✅ Plus rapide et fiable
+
+**Utilisation rapide** :
+```bash
+# Récupération complète des prix
+npx tsx scripts/fetch-prices-from-csv.ts
+
+# Vérifier la progression
+npx tsx scripts/check-price-progress.ts
+```
+
+### Ancienne Méthode: Via Google Drive
+
+L'ancienne méthode via Google Drive est toujours disponible mais peut être limitée par les permissions d'accès aux dossiers. Voir `lib/price-fetcher.ts` pour plus de détails.
+
+
+
