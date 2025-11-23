@@ -6,9 +6,142 @@ import { Request } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, MoreVertical, Upload, Send, User, Briefcase, Calendar, Paperclip, Image as ImageIcon } from 'lucide-react';
 import { CSVRequestData } from '@/lib/csv-request-parser';
-import { formatRequestNumber } from '@/lib/format-utils';
+import { formatRequestNumber, formatPrice } from '@/lib/format-utils';
 import { Sidebar } from '@/components/layout/Sidebar';
 import Image from 'next/image';
+
+// Helper function to extract section data from CSV based on column indices
+function extractSectionFromCSV(
+  csvData: CSVRequestData,
+  section: 'bottom' | 'top' | 'column'
+): { design?: string; color?: string; handle?: string; worktop?: string; backsplash?: string; tap?: string } {
+  if (!csvData || !csvData.data || !csvData.headers) {
+    return {};
+  }
+
+  const data = csvData.data;
+  const headers = csvData.headers;
+  const columnIndices = csvData.columnIndices || [];
+  const result: any = {};
+
+  // Helper pour obtenir la valeur d'une colonne par son index dans le CSV original
+  // Les columnIndices contiennent les indices des colonnes extraites dans l'ordre
+  // Par exemple pour bicolor: [1, 6, 7, 8, ...] signifie que headers[0] = colonne B, headers[1] = colonne G, etc.
+  const getValueByColumnIndex = (targetIndex: number): string | undefined => {
+    // targetIndex est l'index dans le CSV original (0-based, G=6, H=7, etc.)
+    // On doit trouver dans columnIndices à quelle position se trouve cet index
+    const extractedIndex = columnIndices.indexOf(targetIndex);
+    if (extractedIndex >= 0 && extractedIndex < headers.length) {
+      const header = headers[extractedIndex];
+      const value = data[header]?.trim();
+      if (value && value !== '') {
+        return value;
+      }
+    }
+    return undefined;
+  };
+
+  // Helper pour obtenir toutes les valeurs d'une plage de colonnes
+  const getValuesByColumnRange = (startIndex: number, endIndex: number): string[] => {
+    const values: string[] = [];
+    for (let i = startIndex; i <= endIndex; i++) {
+      const value = getValueByColumnIndex(i);
+      if (value) values.push(value);
+    }
+    return values;
+  };
+
+  if (section === 'top') {
+    // HAUT: Colonnes G, H, I (indices 6, 7, 8)
+    const hautValues = getValuesByColumnRange(6, 8);
+    if (hautValues.length > 0) {
+      result.design = hautValues[0] || undefined;
+      result.color = hautValues[1] || undefined;
+      result.handle = hautValues[2] || undefined;
+    }
+  } else if (section === 'column') {
+    // COLONNE: Colonnes J, K, L (indices 9, 10, 11)
+    const colonneValues = getValuesByColumnRange(9, 11);
+    if (colonneValues.length > 0) {
+      result.design = colonneValues[0] || undefined;
+      result.color = colonneValues[1] || undefined;
+      result.handle = colonneValues[2] || undefined;
+    }
+  } else if (section === 'bottom') {
+    // BAS: Colonnes M, N, O, P (indices 12, 13, 14, 15)
+    const basValues = getValuesByColumnRange(12, 15);
+    if (basValues.length > 0) {
+      result.design = basValues[0] || undefined;
+      result.color = basValues[1] || undefined;
+      result.handle = basValues[2] || undefined;
+      result.worktop = basValues[3] || undefined;
+      // Chercher crédence et mitigeur dans les valeurs suivantes ou dans d'autres colonnes
+      result.backsplash = basValues.find(v => v.toLowerCase().includes('credence') || v.toLowerCase().includes('crédence')) || undefined;
+      result.tap = basValues.find(v => v.toLowerCase().includes('mitigeur') || v.toLowerCase().includes('wave') || v.toLowerCase().includes('robinet')) || undefined;
+    }
+  }
+
+  // Clean up undefined values
+  Object.keys(result).forEach(key => {
+    if (result[key] === undefined) delete result[key];
+  });
+
+  return result;
+}
+
+// Helper function to extract ILOT section (colonnes Q, R, S, T)
+function extractIlotFromCSV(csvData: CSVRequestData): { design?: string; color?: string; handle?: string; worktop?: string } {
+  if (!csvData || !csvData.data || !csvData.headers) {
+    return {};
+  }
+
+  const data = csvData.data;
+  const headers = csvData.headers;
+  const columnIndices = csvData.columnIndices || [];
+  const result: any = {};
+
+  const getValueByColumnIndex = (targetIndex: number): string | undefined => {
+    const extractedIndex = columnIndices.indexOf(targetIndex);
+    if (extractedIndex >= 0 && extractedIndex < headers.length) {
+      const header = headers[extractedIndex];
+      const value = data[header]?.trim();
+      if (value) return value;
+    }
+    return undefined;
+  };
+
+  // ILOT: Colonnes Q, R, S, T (indices 16, 17, 18, 19)
+  const ilotValues: (string | undefined)[] = [];
+  for (let i = 16; i <= 19; i++) {
+    ilotValues.push(getValueByColumnIndex(i));
+  }
+
+  if (ilotValues.some(v => v)) {
+    result.design = ilotValues[0] || undefined;
+    result.color = ilotValues[1] || undefined;
+    result.handle = ilotValues[2] || undefined;
+    result.worktop = ilotValues[3] || undefined;
+  }
+
+  // Clean up undefined values
+  Object.keys(result).forEach(key => {
+    if (result[key] === undefined) delete result[key];
+  });
+
+  return result;
+}
+
+// Helper to render a section item with swatch
+function renderSectionItem(label: string, value: string | undefined) {
+  if (!value) return null;
+  
+  return (
+    <div key={label} className="flex items-center gap-3">
+      <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
+      <span className="text-sm text-gray-900">{label}: {value}</span>
+    </div>
+  );
+}
 
 export default function RequestDetailPage() {
   const params = useParams();
@@ -23,12 +156,14 @@ export default function RequestDetailPage() {
 
   useEffect(() => {
     fetchRequest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
   useEffect(() => {
     if (request) {
       fetchCSVData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
 
   const fetchRequest = async () => {
@@ -148,90 +283,216 @@ export default function RequestDetailPage() {
           <div className="flex-1 overflow-y-auto px-6 py-6">
             {csvData ? (
               <div className="space-y-6">
-                {/* BOTTOM Section */}
-                {csvData.data && Object.keys(csvData.data).length > 0 && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">BOTTOM</h2>
-                    <div className="space-y-2.5">
-                      {csvData.headers.map((header, idx) => {
-                        const value = csvData.data[header];
-                        if (!value || value.trim() === '') return null;
-                        
-                        // Pour PP, afficher toutes les colonnes extraites
-                        // Les premières colonnes correspondent à BOTTOM
-                        if (csvData.type === 'PP' && !csvData.isBicolor) {
-                          // Monochrome: B, D, E, F puis Z à AG
-                          if (idx < csvData.headers.length) {
+                {/* Extract sections from CSV - Détecter automatiquement si bicolor en vérifiant les données */}
+                {(() => {
+                  // Détecter si c'est bicolor en vérifiant si des données existent dans les colonnes spécifiques
+                  const hasBicolorData = (() => {
+                    for (let i = 6; i <= 19; i++) {
+                      const extractedIndex = csvData.columnIndices?.indexOf(i);
+                      if (extractedIndex >= 0 && extractedIndex < csvData.headers.length) {
+                        const header = csvData.headers[extractedIndex];
+                        const value = csvData.data[header]?.trim();
+                        if (value && value !== '') return true;
+                      }
+                    }
+                    return false;
+                  })();
+                  
+                  // Utiliser isBicolor du CSV ou la détection automatique
+                  const shouldShowSections = csvData.isBicolor || hasBicolorData;
+                  
+                  if (shouldShowSections) {
+                    const topSection = extractSectionFromCSV(csvData, 'top');
+                    const colonneSection = extractSectionFromCSV(csvData, 'column');
+                    const bottomSection = extractSectionFromCSV(csvData, 'bottom');
+                    const ilotSection = extractIlotFromCSV(csvData);
+                    
+                    // Vérifier si une section a des données
+                    const hasSectionData = (section: any) => {
+                      return !!(section.design || section.color || section.handle || section.worktop || section.backsplash || section.tap);
+                    };
+                    
+                    return (
+                      <>
+                        {/* HAUT Section - Caissons haut */}
+                        {hasSectionData(topSection) && (
+                          <div>
+                            <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">HAUT</h2>
+                            <div className="space-y-2.5">
+                              {topSection.design && renderSectionItem('Design', topSection.design)}
+                              {topSection.color && renderSectionItem('Couleur', topSection.color)}
+                              {topSection.handle && renderSectionItem('Poignées', topSection.handle)}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* BAS Section - Caissons bas */}
+                        {hasSectionData(bottomSection) && (
+                          <div className="mt-6">
+                            <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">BAS</h2>
+                            <div className="space-y-2.5">
+                              {bottomSection.design && renderSectionItem('Design', bottomSection.design)}
+                              {bottomSection.color && renderSectionItem('Couleur', bottomSection.color)}
+                              {bottomSection.handle && renderSectionItem('Poignées', bottomSection.handle)}
+                              {bottomSection.worktop && renderSectionItem('Plan de travail', bottomSection.worktop)}
+                              {bottomSection.backsplash && renderSectionItem('Crédence', bottomSection.backsplash)}
+                              {bottomSection.tap && renderSectionItem('Mitigeur', bottomSection.tap)}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* COLONNE Section - Colonnes */}
+                        {hasSectionData(colonneSection) && (
+                          <div className="mt-6">
+                            <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">COLONNE</h2>
+                            <div className="space-y-2.5">
+                              {colonneSection.design && renderSectionItem('Design', colonneSection.design)}
+                              {colonneSection.color && renderSectionItem('Couleur', colonneSection.color)}
+                              {colonneSection.handle && renderSectionItem('Poignées', colonneSection.handle)}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ILOT Section - Ilot */}
+                        {hasSectionData(ilotSection) && (
+                          <div className="mt-6">
+                            <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">ILOT</h2>
+                            <div className="space-y-2.5">
+                              {ilotSection.design && renderSectionItem('Design', ilotSection.design)}
+                              {ilotSection.color && renderSectionItem('Couleur', ilotSection.color)}
+                              {ilotSection.handle && renderSectionItem('Poignées', ilotSection.handle)}
+                              {ilotSection.worktop && renderSectionItem('Plan de travail', ilotSection.worktop)}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* GLOBAL Section - Colonnes U à AF (20-31) */}
+                        {(() => {
+                          const globalValues: string[] = [];
+                          for (let i = 20; i <= 31; i++) {
+                            const extractedIndex = csvData.columnIndices?.indexOf(i);
+                            if (extractedIndex >= 0 && extractedIndex < csvData.headers.length) {
+                              const header = csvData.headers[extractedIndex];
+                              const value = csvData.data[header]?.trim();
+                              if (value) {
+                                // Détecter si c'est un mitigeur et ajouter le préfixe
+                                const lowerValue = value.toLowerCase();
+                                if (lowerValue.includes('wave') || lowerValue.includes('mitigeur') || lowerValue.includes('laiton') || lowerValue.includes('brossé')) {
+                                  globalValues.push(`Mitigeur: ${value}`);
+                                } else {
+                                  globalValues.push(value);
+                                }
+                              }
+                            }
+                          }
+                          return globalValues.length > 0 ? (
+                            <div className="mt-6">
+                              <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">GLOBAL</h2>
+                              <div className="space-y-2.5">
+                                {globalValues.map((value, idx) => (
+                                  <div key={idx} className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
+                                    <span className="text-sm text-gray-900">{value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* DESCRIPTION Section - Colonne AG (32) */}
+                        {(() => {
+                          const extractedIndex = csvData.columnIndices?.indexOf(32);
+                          if (extractedIndex >= 0 && extractedIndex < csvData.headers.length) {
+                            const header = csvData.headers[extractedIndex];
+                            const description = csvData.data[header]?.trim();
+                            if (description) {
+                              return (
+                                <div className="mt-6">
+                                  <h2 className="text-sm font-semibold text-gray-700 mb-2 uppercase">DESCRIPTION</h2>
+                                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{description}</p>
+                                </div>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
+
+                        {/* PIECES-JOINTES Section - Colonne AH (33) */}
+                        {(() => {
+                          const extractedIndex = csvData.columnIndices?.indexOf(33);
+                          if (extractedIndex >= 0 && extractedIndex < csvData.headers.length) {
+                            const header = csvData.headers[extractedIndex];
+                            const piecesJointes = csvData.data[header]?.trim();
+                            if (piecesJointes) {
+                              return (
+                                <div className="mt-6">
+                                  <h2 className="text-sm font-semibold text-gray-700 mb-2 uppercase">PIECES-JOINTES</h2>
+                                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{piecesJointes}</p>
+                                </div>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
+                      </>
+                    );
+                  } else {
+                    /* Monochrome: Afficher toutes les données sans sections TOP/BOTTOM/COLUMN */
+                    const monoBottomSection = extractSectionFromCSV(csvData, 'bottom');
+                    const monoTopSection = extractSectionFromCSV(csvData, 'top');
+                    const monoColumnSection = extractSectionFromCSV(csvData, 'column');
+                    
+                    // Combiner toutes les données extraites
+                    const allData = {
+                      design: monoBottomSection.design || monoTopSection.design || monoColumnSection.design,
+                      color: monoBottomSection.color || monoTopSection.color || monoColumnSection.color,
+                      handle: monoBottomSection.handle || monoTopSection.handle || monoColumnSection.handle,
+                      worktop: monoBottomSection.worktop,
+                      backsplash: monoBottomSection.backsplash,
+                      tap: monoBottomSection.tap,
+                    };
+
+                    // Afficher toutes les données disponibles depuis le CSV
+                    const hasData = Object.values(allData).some(v => v);
+                    
+                    if (hasData) {
+                      return (
+                        <div className="space-y-2.5">
+                          {allData.design && renderSectionItem('Design', allData.design)}
+                          {allData.color && renderSectionItem('Couleur', allData.color)}
+                          {allData.handle && renderSectionItem('Poignée', allData.handle)}
+                          {allData.worktop && renderSectionItem('Plan de travail', allData.worktop)}
+                          {allData.backsplash && renderSectionItem('Crédence', allData.backsplash)}
+                          {allData.tap && renderSectionItem('Mitigeur', allData.tap)}
+                        </div>
+                      );
+                    }
+
+                    // Fallback: afficher toutes les données CSV disponibles
+                    if (csvData.data && Object.keys(csvData.data).length > 0) {
+                      return (
+                        <div className="space-y-2.5">
+                          {csvData.headers.map((header, idx) => {
+                            const value = csvData.data[header];
+                            if (!value || value.trim() === '') return null;
                             return (
                               <div key={idx} className="flex items-center gap-3">
                                 <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
                                 <span className="text-sm text-gray-900">{value}</span>
                               </div>
                             );
-                          }
-                        } else if (csvData.type === 'PP' && csvData.isBicolor) {
-                          // Bicolor: B puis G à AG
-                          return (
-                            <div key={idx} className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
-                              <span className="text-sm text-gray-900">{value}</span>
-                            </div>
-                          );
-                        } else if (csvData.type === 'Client') {
-                          // Client: B à K
-                          return (
-                            <div key={idx} className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
-                              <span className="text-sm text-gray-900">{value}</span>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* TOP Section - Only for Bicolor PP */}
-                {csvData.isBicolor && csvData.type === 'PP' && (
-                  <div className="mt-6">
-                    <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">TOP</h2>
-                    <div className="space-y-2.5">
-                      {/* Les colonnes G à AG pour TOP dans bicolor */}
-                      {csvData.headers.slice(1).map((header, idx) => {
-                        const value = csvData.data[header];
-                        if (!value || value.trim() === '') return null;
-                        return (
-                          <div key={`top-${idx}`} className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
-                            <span className="text-sm text-gray-900">{value}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* COLUMN Section */}
-                <div className="mt-6">
-                  <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase">COLUMN</h2>
-                  <div className="space-y-2.5">
-                    {/* Afficher les dernières colonnes pour COLUMN */}
-                    {csvData.headers.slice(-3).map((header, idx) => {
-                      const value = csvData.data[header];
-                      if (!value || value.trim() === '') return null;
-                      return (
-                        <div key={`col-${idx}`} className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-gray-200 rounded flex-shrink-0 border border-gray-300"></div>
-                          <span className="text-sm text-gray-900">{value}</span>
+                          })}
                         </div>
                       );
-                    })}
-                  </div>
-                </div>
+                    }
+
+                    return null;
+                  }
+                })()}
 
                 {/* DESCRIPTION */}
-                {(request.description || csvData.data['Description']) && (
+                {(request.description || csvData.data['Description'] || csvData.data['DESCRIPTION']) && (
                   <div className="mt-6">
                     <h2 className="text-sm font-semibold text-gray-700 mb-2 uppercase">DESCRIPTION</h2>
                     <p className="text-sm text-gray-900">
@@ -299,10 +560,11 @@ export default function RequestDetailPage() {
 
               {/* Project Metadata */}
               <div className="space-y-4 pt-4 border-t border-gray-200">
+                {/* Client Name - affiché avant Metod */}
                 <div className="flex items-center gap-3 text-sm">
                   <User className="w-4 h-4 text-gray-400" />
                   <span className="text-gray-900">
-                    {csvData?.data[csvData.headers[0]] || request.clientName || 'N/A'}
+                    {request.clientName || csvData?.data[csvData.headers?.[0]] || 'N/A'}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
@@ -321,6 +583,39 @@ export default function RequestDetailPage() {
                       : 'N/A'}
                   </span>
                 </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-gray-400 font-semibold">Prix:</span>
+                  <span className="text-gray-900 font-semibold">{formatPrice(request.price)}</span>
+                </div>
+                {csvData?.ikpLink && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <Paperclip className="w-4 h-4 text-gray-400" />
+                    <a
+                      href={csvData.ikpLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Plan IKP
+                    </a>
+                  </div>
+                )}
+                {csvData?.thumbnail && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <ImageIcon className="w-4 h-4 text-gray-400" />
+                    <div className="flex flex-col">
+                      <span className="text-gray-600 text-xs">Thumbnail IKP</span>
+                      <a
+                        href={csvData.thumbnail}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 underline text-xs break-all"
+                      >
+                        Voir l'image
+                      </a>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 text-sm">
                   <Paperclip className="w-4 h-4 text-gray-400" />
                   <span className="text-gray-900">Attached files</span>
