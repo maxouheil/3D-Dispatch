@@ -6,7 +6,8 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { DashboardKPIs } from '@/components/admin/DashboardKPIs';
 import { ArtistBacklogSummary } from '@/components/admin/ArtistBacklogSummary';
 import { GoogleSheetsSync } from '@/components/admin/GoogleSheetsSync';
-import { isBacklogStatus, isOngoingStatus, isSentStatus, isWithinCurrentWeek, getCurrentWeekRange } from '@/lib/utils';
+import { CSVMatching } from '@/components/admin/CSVMatching';
+import { isBacklogStatus, isOngoingStatus, isSentStatus, isWithinCurrentWeek, getCurrentWeekRange, getSentDate } from '@/lib/utils';
 
 export default function AdminDashboard() {
   const [requests, setRequests] = useState<Request[]>([]);
@@ -56,9 +57,11 @@ export default function AdminDashboard() {
       const totalRequests = backlogRequests + ongoingRequests;
 
       // Sent: sent to client (current week only)
+      // Use sentDate if available (date when sent to client), otherwise use date (date received)
       const sentRequests = requestsData.filter((r: Request) => {
-        if (!r.date) return false;
-        return isSentStatus(r.status) && isWithinCurrentWeek(r.date);
+        const sentDate = getSentDate(r);
+        if (!sentDate) return false;
+        return isSentStatus(r.status) && isWithinCurrentWeek(sentDate);
       }).length;
 
       setStats({
@@ -95,6 +98,7 @@ export default function AdminDashboard() {
       </div>
 
       <GoogleSheetsSync />
+      <CSVMatching />
 
       <DashboardKPIs stats={stats} />
 

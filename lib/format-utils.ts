@@ -21,5 +21,24 @@ export function formatDateShort(dateString: string): string {
   });
 }
 
+/**
+ * Formate un prix en euros avec séparateurs de milliers
+ * Exemple: 5938 -> "5 938 €"
+ */
+export function formatPrice(price: number | undefined | null): string {
+  if (price === undefined || price === null || isNaN(price)) {
+    return 'N/A';
+  }
+  if (price === 0) {
+    return 'N/A';
+  }
+  // Formater avec espace comme séparateur de milliers (format français)
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(price) + ' €';
+}
+
 
 

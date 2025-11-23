@@ -15,7 +15,8 @@ export interface ProjectData {
   projectCode: string;
   type: 'PP' | 'Client';
   price?: number; // Prix existant dans le CSV (Client uniquement)
-  email?: string;
+  email?: string; // Email PP (pour PP) ou email général
+  clientEmail?: string; // Email client (colonne AO pour PP, colonne D pour Client)
   submitDate?: string; // Date de soumission (Submit Date UTC)
   clientName?: string; // Nom du client si disponible dans le CSV
   [key: string]: any; // Autres données du CSV
@@ -102,10 +103,29 @@ export function parseTypeformCSV(
   
   if (csvType === 'PP') {
     projectColumnIndex = 45; // Colonne AT
+    // Chercher aussi la colonne Price pour PP (peut être disponible)
+    priceColumnIndex = headers.findIndex(h => 
+      h.toLowerCase() === 'price' || 
+      h.toLowerCase() === 'prix' ||
+      h.toLowerCase().includes('price') ||
+      h.toLowerCase().includes('prix')
+    );
   } else {
     projectColumnIndex = 22; // Colonne W
-    // Chercher la colonne Price pour Client
-    priceColumnIndex = headers.findIndex(h => h.toLowerCase() === 'price');
+    // Chercher la colonne Price pour Client (plusieurs variantes possibles)
+    priceColumnIndex = headers.findIndex(h => 
+      h.toLowerCase() === 'price' || 
+      h.toLowerCase() === 'prix' ||
+      h.toLowerCase().includes('price') ||
+      h.toLowerCase().includes('prix') ||
+      h.toLowerCase().includes('total')
+    );
+  }
+  
+  if (priceColumnIndex >= 0) {
+    console.log(`Found price column at index ${priceColumnIndex}: "${headers[priceColumnIndex]}"`);
+  } else {
+    console.log(`⚠️ No price column found in CSV (searched in headers: ${headers.slice(0, 30).join(', ')})`);
   }
   
   // Debug: vérifier que le type détecté correspond au nombre de colonnes
@@ -128,11 +148,20 @@ export function parseTypeformCSV(
     h.toLowerCase() === 'email' || h.toLowerCase() === 'pp_email'
   );
 
+  // Chercher l'index de la colonne client email
+  // CSV PP: colonne AO (index 40), CSV Client: colonne S (index 18)
+  let clientEmailColumnIndex: number;
+  if (csvType === 'PP') {
+    clientEmailColumnIndex = 40; // Colonne AO pour PP
+  } else {
+    clientEmailColumnIndex = 18; // Colonne S pour Client
+  }
+
   // Chercher l'index de la colonne Submit Date (UTC)
-  // CSV PP: colonne 51 (index 51), CSV Client: colonne 29 (index 29)
+  // CSV PP: colonne AZ (index 51), CSV Client: colonne 29 (index 29)
   let submitDateColumnIndex: number;
   if (csvType === 'PP') {
-    submitDateColumnIndex = 51; // Colonne Submit Date (UTC) pour PP
+    submitDateColumnIndex = 51; // Colonne AZ (Submit Date UTC) pour PP
   } else {
     submitDateColumnIndex = 29; // Colonne Submit Date (UTC) pour Client
   }
@@ -176,15 +205,19 @@ export function parseTypeformCSV(
         continue;
       }
 
-      // Extraire le prix si disponible (Client uniquement)
+      // Extraire le prix si disponible (Client et PP si colonne trouvée)
       let price: number | undefined;
-      if (csvType === 'Client' && priceColumnIndex !== null && priceColumnIndex >= 0) {
+      if (priceColumnIndex !== null && priceColumnIndex >= 0 && priceColumnIndex < row.length) {
         const priceStr = row[priceColumnIndex]?.trim();
-        if (priceStr) {
+        if (priceStr && priceStr !== '') {
           const parsedPrice = parsePrice(priceStr);
           if (parsedPrice > 0) {
             price = parsedPrice;
             withPriceCount++;
+            // Debug: log les premiers prix pour vérifier le parsing
+            if (withPriceCount <= 5) {
+              console.log(`  Sample price: "${priceStr}" -> ${parsedPrice}`);
+            }
           }
         }
       }
@@ -193,6 +226,15 @@ export function parseTypeformCSV(
       let email: string | undefined;
       if (emailColumnIndex >= 0 && emailColumnIndex < row.length) {
         email = row[emailColumnIndex]?.trim() || undefined;
+      }
+
+      // Extraire l'email client (colonne AO pour PP, colonne D pour Client)
+      let clientEmail: string | undefined;
+      if (clientEmailColumnIndex >= 0 && clientEmailColumnIndex < row.length) {
+        const emailStr = row[clientEmailColumnIndex]?.trim();
+        if (emailStr) {
+          clientEmail = emailStr;
+        }
       }
 
       // Extraire la date de soumission si disponible
@@ -217,6 +259,7 @@ export function parseTypeformCSV(
         type: csvType,
         ...(price !== undefined && { price }),
         ...(email && { email }),
+        ...(clientEmail && { clientEmail }),
         ...(submitDate && { submitDate }),
         ...(clientName && { clientName }),
       };
@@ -313,19 +356,41 @@ function isValidUUID(str: string): boolean {
 
 /**
  * Parse un prix depuis une chaîne
- * Supporte les formats: "€100", "100€", "100", "$100", etc.
+ * Supporte les formats: "€100", "100€", "100", "$100", "5 938 €", "5,938€", etc.
+ * Gère les séparateurs de milliers (espaces et virgules)
  */
 function parsePrice(priceStr: string): number {
   if (!priceStr) return 0;
 
-  // Retirer tous les caractères sauf chiffres, points et virgules
-  const cleaned = priceStr.replace(/[^\d.,]/g, '');
+  // Retirer tous les caractères sauf chiffres, points, virgules et espaces
+  const cleaned = priceStr.replace(/[^\d.,\s]/g, '');
   
-  // Remplacer la virgule par un point pour le parsing
-  const normalized = cleaned.replace(',', '.');
+  // Retirer les espaces (séparateurs de milliers en français: "5 938" -> "5938")
+  const withoutSpaces = cleaned.replace(/\s/g, '');
+  
+  // Gérer les virgules et points
+  // Si on a une virgule ET un point, la virgule est probablement un séparateur de milliers
+  // Sinon, remplacer la virgule par un point (séparateur décimal en français)
+  let normalized = withoutSpaces;
+  if (withoutSpaces.includes(',') && withoutSpaces.includes('.')) {
+    // Les deux présents: retirer les virgules (séparateurs de milliers)
+    normalized = withoutSpaces.replace(/,/g, '');
+  } else if (withoutSpaces.includes(',')) {
+    // Seulement virgule: peut être décimal (FR) ou milliers (US)
+    // Si après la virgule il y a 2 chiffres, c'est probablement décimal
+    const commaIndex = withoutSpaces.indexOf(',');
+    const afterComma = withoutSpaces.substring(commaIndex + 1);
+    if (afterComma.length === 2 && !withoutSpaces.includes('.')) {
+      // Format décimal français: "5938,50"
+      normalized = withoutSpaces.replace(',', '.');
+    } else {
+      // Format milliers: "5,938"
+      normalized = withoutSpaces.replace(/,/g, '');
+    }
+  }
   
   const price = parseFloat(normalized);
-  return isNaN(price) ? 0 : price;
+  return isNaN(price) ? 0 : Math.round(price); // Arrondir pour éviter les décimales
 }
 
 /**

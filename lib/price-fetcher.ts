@@ -409,36 +409,48 @@ export async function fetchPriceFromPlumLiving(projectCode: string): Promise<num
       // Attendre que la page soit chargée et que les éléments dynamiques soient rendus
       await page.waitForTimeout(4000);
 
-      // D'après le screenshot, le prix total est dans un conteneur avec mantine-Stack-root
-      // Chercher d'abord dans ce conteneur spécifique
-      let price = 0;
-      let priceText = '';
-
-      // Stratégie 1: Chercher le prix total dans la section de résumé
-      // D'après le screenshot, le prix total "5 938 €" est dans un élément avec mantine-nzjykg
-      // C'est généralement le plus grand nombre formaté avec espaces dans la section de résumé
-      const priceSummarySelectors = [
-        '[class*="mantine-nzjykg"]', // Classe spécifique du prix total d'après le screenshot
+      // NOUVELLE STRATÉGIE: Chercher spécifiquement dans la sidebar Mantine
+      // Le prix total (généralement > 4000€) se trouve dans la sidebar
+      console.log('🔍 Searching for price in Mantine sidebar...');
+      
+      // Chercher tous les éléments de la sidebar (généralement un aside ou un conteneur fixe à droite)
+      const sidebarSelectors = [
+        'aside',
+        '[class*="sidebar"]',
+        '[class*="Sidebar"]',
+        '[class*="mantine-Paper-root"]', // Les sidebars Mantine utilisent souvent Paper
+        '[class*="mantine-Aside-root"]', // Si Mantine Aside est utilisé
       ];
 
-      const allPotentialPrices: Array<{ text: string; price: number; element: any }> = [];
+      const allPotentialPrices: Array<{ text: string; price: number; source: string }> = [];
 
-      for (const selector of priceSummarySelectors) {
+      // Stratégie 1: Chercher dans la sidebar Mantine
+      for (const sidebarSelector of sidebarSelectors) {
         try {
-          const elements = await page.$$(selector);
-          console.log(`  Found ${elements.length} elements with selector: ${selector}`);
+          const sidebars = await page.$$(sidebarSelector);
+          console.log(`  Found ${sidebars.length} elements with selector: ${sidebarSelector}`);
           
-          for (const element of elements) {
-            const text = await page.evaluate((el) => el.textContent?.trim(), element);
-            if (text && text.includes('€')) {
-              // Le prix total devrait être formaté avec des espaces comme séparateurs de milliers (ex: "5 938 €")
-              const parsedPrice = parsePriceFromText(text);
-              if (parsedPrice > 1000 && parsedPrice < 1000000) {
-                // Vérifier si c'est bien formaté avec espaces (indicateur de prix total)
-                // Le prix total a généralement le format "X XXX €" ou "X XXX€"
-                const hasSpaceFormat = text.match(/\d+\s+\d{3}\s*€/);
-                allPotentialPrices.push({ text, price: parsedPrice, element });
-                console.log(`  Found potential price: ${parsedPrice} from "${text}" (has space format: ${!!hasSpaceFormat})`);
+          for (const sidebar of sidebars) {
+            // Chercher tous les éléments texte dans la sidebar qui contiennent "€"
+            const textElements = await sidebar.$$('[class*="mantine-Text-root"], [class*="mantine-Stack-root"] *');
+            
+            for (const textEl of textElements) {
+              const text = await page.evaluate((el: Element) => el.textContent?.trim(), textEl);
+              if (text && text.includes('€')) {
+                const parsedPrice = parsePriceFromText(text);
+                // Filtrer les prix raisonnables: entre 1000€ et 15000€ (éviter les IDs ou nombres anormaux)
+                // Le prix total d'un projet de cuisine est généralement entre 5000€ et 15000€
+                if (parsedPrice >= 1000 && parsedPrice <= 15000) {
+                  // Bonus si le texte contient "total" ou "prix"
+                  const textLower = text.toLowerCase();
+                  const hasTotalKeyword = textLower.includes('total') || textLower.includes('prix') || textLower.includes('montant');
+                  allPotentialPrices.push({ 
+                    text, 
+                    price: parsedPrice, 
+                    source: `sidebar-${sidebarSelector}${hasTotalKeyword ? '-total' : ''}` 
+                  });
+                  console.log(`  ✓ Found price in sidebar: ${parsedPrice}€ from "${text.substring(0, 50)}"${hasTotalKeyword ? ' (has total keyword)' : ''}`);
+                }
               }
             }
           }
@@ -447,105 +459,109 @@ export async function fetchPriceFromPlumLiving(projectCode: string): Promise<num
         }
       }
 
-      // Trier par prix décroissant et prendre le plus élevé (probablement le total)
+      // Stratégie 2: Chercher dans tous les conteneurs Mantine Stack (la sidebar utilise souvent Stack)
+      const stackContainers = await page.$$('[class*="mantine-Stack-root"]');
+      console.log(`  Found ${stackContainers.length} Stack containers`);
+      
+      for (const container of stackContainers) {
+        // Vérifier si ce conteneur est dans une sidebar (position fixe à droite)
+        const isInSidebar = await page.evaluate((el: Element) => {
+          const rect = el.getBoundingClientRect();
+          const windowWidth = window.innerWidth;
+          // Si le conteneur est positionné à droite (dans le dernier tiers de l'écran), c'est probablement la sidebar
+          return rect.left > windowWidth * 0.6;
+        }, container);
+        
+        if (isInSidebar) {
+          // Chercher tous les éléments texte dans ce conteneur
+          const allTextElements = await container.$$('[class*="mantine-Text-root"], *');
+          
+          for (const textEl of allTextElements) {
+            const text = await page.evaluate((el: Element) => el.textContent?.trim(), textEl);
+            if (text && text.includes('€')) {
+              const parsedPrice = parsePriceFromText(text);
+              // Filtrer les prix > 4000€
+              if (parsedPrice >= 1000 && parsedPrice <= 15000) {
+                allPotentialPrices.push({ 
+                  text, 
+                  price: parsedPrice, 
+                  source: 'stack-sidebar' 
+                });
+                console.log(`  ✓ Found price in Stack sidebar: ${parsedPrice} from "${text.substring(0, 50)}"`);
+              }
+            }
+          }
+        }
+      }
+
+      // Stratégie 3: Chercher tous les éléments Mantine Text contenant "€" et filtrer par prix raisonnable
+      const allTextElements = await page.$$('[class*="mantine-Text-root"]');
+      console.log(`  Found ${allTextElements.length} elements with mantine-Text-root class`);
+      
+      for (const element of allTextElements) {
+        const text = await page.evaluate((el: Element) => el.textContent?.trim(), element);
+        if (text && text.includes('€')) {
+              const parsedPrice = parsePriceFromText(text);
+              // Filtrer les prix raisonnables: entre 1000€ et 15000€
+              if (parsedPrice >= 1000 && parsedPrice <= 15000) {
+            const textLower = text.toLowerCase();
+            const hasTotalKeyword = textLower.includes('total') || textLower.includes('prix') || textLower.includes('montant');
+            allPotentialPrices.push({ 
+              text, 
+              price: parsedPrice, 
+              source: `text-element${hasTotalKeyword ? '-total' : ''}` 
+            });
+            console.log(`  ✓ Found price in text element: ${parsedPrice}€ from "${text.substring(0, 50)}"${hasTotalKeyword ? ' (has total keyword)' : ''}`);
+          }
+        }
+      }
+
+      // Trier par priorité: d'abord ceux avec "total" dans le texte, puis par prix décroissant
       if (allPotentialPrices.length > 0) {
+        // Séparer les prix avec et sans mot-clé "total"
+        const pricesWithTotal = allPotentialPrices.filter(p => p.source.includes('-total'));
+        const pricesWithoutTotal = allPotentialPrices.filter(p => !p.source.includes('-total'));
+        
+        // Si on a des prix avec "total", prendre le plus élevé parmi eux
+        if (pricesWithTotal.length > 0) {
+          pricesWithTotal.sort((a, b) => b.price - a.price);
+          const totalPrice = pricesWithTotal[0];
+          console.log(`✅ Found total price (with keyword): ${totalPrice.price}€ from "${totalPrice.text.substring(0, 50)}" (source: ${totalPrice.source})`);
+          console.log(`📊 All found prices:`, allPotentialPrices.map(p => `${p.price}€ (${p.source})`).join(', '));
+          return totalPrice.price;
+        }
+        
+        // Sinon, prendre le prix le plus élevé (mais toujours dans la plage raisonnable)
         allPotentialPrices.sort((a, b) => b.price - a.price);
-        // Le prix total est généralement le plus grand nombre
         const totalPrice = allPotentialPrices[0];
-        console.log(`Found total price: ${totalPrice.price} from "${totalPrice.text}"`);
+        console.log(`✅ Found total price (highest): ${totalPrice.price}€ from "${totalPrice.text.substring(0, 50)}" (source: ${totalPrice.source})`);
+        console.log(`📊 All found prices:`, allPotentialPrices.map(p => `${p.price}€ (${p.source})`).join(', '));
         return totalPrice.price;
       }
 
-      // Stratégie 2: Chercher dans le conteneur Stack et trouver le plus grand nombre raisonnable
-      const stackContainers = await page.$$('[class*="mantine-Stack-root"]');
-      console.log(`Found ${stackContainers.length} Stack containers`);
+      // Fallback: Si aucun prix raisonnable trouvé, chercher le prix le plus élevé (même < 1000€)
+      console.log('⚠️  No price between 1000€ and 15000€ found, searching for highest price...');
+      const fallbackPrices: Array<{ text: string; price: number }> = [];
       
-      const allPrices: Array<{ text: string; price: number }> = [];
-      
-      for (const container of stackContainers) {
-        // Chercher tous les éléments texte dans ce conteneur
-        const allTextElements = await container.$$('[class*="mantine-Text-root"]');
-        
-        for (const textEl of allTextElements) {
-          const text = await page.evaluate((el) => el.textContent?.trim(), textEl);
-          if (text && text.includes('€')) {
-            const parsedPrice = parsePriceFromText(text);
-            // Filtrer les prix raisonnables (entre 1000 et 1000000)
-            if (parsedPrice > 1000 && parsedPrice < 1000000) {
-              allPrices.push({ text, price: parsedPrice });
-            }
-          }
-        }
-      }
-
-      // Trier par prix décroissant et prendre le plus élevé (probablement le total)
-      if (allPrices.length > 0) {
-        allPrices.sort((a, b) => b.price - a.price);
-        const bestMatch = allPrices[0];
-        console.log(`Found total price from Stack container: ${bestMatch.price} from "${bestMatch.text.substring(0, 50)}"`);
-        return bestMatch.price;
-      }
-
-      if (price > 0) {
-        console.log(`Found price in Stack container: ${price} from text: "${priceText}"`);
-        return price;
-      }
-
-      // Stratégie 2: Chercher directement les éléments avec mantine-nzjykg (classe du prix total)
-      const altSelectors = [
-        '[class*="mantine-nzjykg"]',
-        '.mantine-Text-root[class*="mantine-nzjykg"]',
-        '[class*="mantine-Text-root"][class*="mantine-nzjykg"]',
-      ];
-
-      for (const selector of altSelectors) {
-        try {
-          const elements = await page.$$(selector);
-          console.log(`Found ${elements.length} elements with selector: ${selector}`);
-          
-          for (const element of elements) {
-            const text = await page.evaluate((el) => el.textContent, element);
-            const parsedPrice = parsePriceFromText(text || '');
-            // Le prix total devrait être le plus grand nombre trouvé (généralement > 1000)
-            if (parsedPrice > price && parsedPrice > 1000) {
-              price = parsedPrice;
-              priceText = text || '';
-              console.log(`Found price with selector ${selector}: ${price} from text: "${text}"`);
-            }
-          }
-        } catch (e) {
-          // Continue avec le prochain sélecteur
-        }
-      }
-
-      if (price > 0) {
-        return price;
-      }
-
-      // Stratégie 3: Chercher tous les éléments avec mantine-Text-root contenant "€" et trouver le plus grand nombre raisonnable
-      const allTextElements = await page.$$('[class*="mantine-Text-root"]');
-      console.log(`Found ${allTextElements.length} elements with mantine-Text-root class`);
-      
-      const textPrices: Array<{ text: string; price: number }> = [];
-      
+      // Chercher dans tous les éléments Mantine Text
       for (const element of allTextElements) {
-        const text = await page.evaluate((el) => el.textContent?.trim(), element);
+        const text = await page.evaluate((el: Element) => el.textContent?.trim(), element);
         if (text && text.includes('€')) {
           const parsedPrice = parsePriceFromText(text);
-          // Filtrer les prix raisonnables (entre 1000 et 1000000)
-          if (parsedPrice > 1000 && parsedPrice < 1000000) {
-            textPrices.push({ text, price: parsedPrice });
+          // Limite supérieure à 15000€ pour éviter les IDs ou nombres anormaux
+          if (parsedPrice > 100 && parsedPrice <= 15000) {
+            fallbackPrices.push({ text, price: parsedPrice });
           }
         }
       }
 
-      if (textPrices.length > 0) {
-        // Trier par prix décroissant et prendre le plus élevé (probablement le total)
-        textPrices.sort((a, b) => b.price - a.price);
-        const bestMatch = textPrices[0];
-        console.log(`Found total price in text element: ${bestMatch.price} from text: "${bestMatch.text.substring(0, 50)}"`);
+      if (fallbackPrices.length > 0) {
+        fallbackPrices.sort((a, b) => b.price - a.price);
+        const bestMatch = fallbackPrices[0];
+        console.log(`⚠️  Using fallback price: ${bestMatch.price}€ from "${bestMatch.text.substring(0, 50)}"`);
         return bestMatch.price;
       }
+
 
       console.warn(`Price element not found on page ${url}`);
       // Prendre un screenshot pour debug
@@ -562,32 +578,53 @@ export async function fetchPriceFromPlumLiving(projectCode: string): Promise<num
 
 /**
  * Parse un prix depuis un texte
- * Supporte les formats: "€100", "100€", "100", "$100", "5 938 €", etc.
+ * Supporte les formats: "€100", "100€", "100", "$100", "5 938 €", "9 075 €", etc.
  */
 function parsePriceFromText(text: string): number {
   if (!text) return 0;
 
   // Retirer tous les caractères sauf chiffres, points, virgules et espaces
-  // Les prix peuvent avoir des espaces comme séparateurs de milliers (ex: "5 938 €")
-  const cleaned = text.replace(/[^\d.,\s]/g, '');
+  // Les prix peuvent avoir des espaces comme séparateurs de milliers (ex: "5 938 €", "9 075 €")
+  const cleaned = text.replace(/[^\d.,\s]/g, '').trim();
   
-  // Retirer les espaces (séparateurs de milliers)
-  const withoutSpaces = cleaned.replace(/\s/g, '');
+  if (!cleaned) return 0;
   
-  // Remplacer la virgule par un point pour le parsing (si c'est un séparateur décimal)
-  // Note: En français, la virgule est le séparateur décimal, mais ici on assume que c'est un point
-  // Si le nombre a une virgule et un point, garder le point comme séparateur décimal
-  let normalized = withoutSpaces;
-  if (withoutSpaces.includes(',') && !withoutSpaces.includes('.')) {
-    // Seulement une virgule, probablement un séparateur décimal
-    normalized = withoutSpaces.replace(',', '.');
-  } else if (withoutSpaces.includes(',') && withoutSpaces.includes('.')) {
-    // Les deux présents, retirer la virgule (probablement séparateur de milliers)
-    normalized = withoutSpaces.replace(/,/g, '');
+  // Détecter le format: si on a des espaces, c'est probablement un séparateur de milliers français
+  // Format français: "9 075" = 9075
+  // Format anglais: "9,075" = 9075 (virgule = séparateur de milliers)
+  // Format décimal: "9.075" = 9.075 (point = séparateur décimal)
+  
+  // Si on a des espaces, retirer les espaces (séparateurs de milliers français)
+  let withoutSpaces = cleaned.replace(/\s/g, '');
+  
+  // Gérer les virgules et points
+  if (withoutSpaces.includes(',') && withoutSpaces.includes('.')) {
+    // Les deux présents: le dernier est probablement le séparateur décimal
+    const lastComma = withoutSpaces.lastIndexOf(',');
+    const lastDot = withoutSpaces.lastIndexOf('.');
+    if (lastDot > lastComma) {
+      // Point est le séparateur décimal, virgule = milliers
+      withoutSpaces = withoutSpaces.replace(/,/g, '');
+    } else {
+      // Virgule est le séparateur décimal, point = milliers
+      withoutSpaces = withoutSpaces.replace(/\./g, '');
+      withoutSpaces = withoutSpaces.replace(',', '.');
+    }
+  } else if (withoutSpaces.includes(',')) {
+    // Seulement une virgule: vérifier si c'est décimal ou milliers
+    // Si après la virgule il y a 3 chiffres, c'est probablement des milliers
+    const parts = withoutSpaces.split(',');
+    if (parts.length === 2 && parts[1].length === 3 && !parts[1].includes('.')) {
+      // Format "9,075" = milliers, retirer la virgule
+      withoutSpaces = withoutSpaces.replace(/,/g, '');
+    } else {
+      // Format "9,75" = décimal, remplacer par point
+      withoutSpaces = withoutSpaces.replace(',', '.');
+    }
   }
   
-  const price = parseFloat(normalized);
-  return isNaN(price) ? 0 : price;
+  const price = parseFloat(withoutSpaces);
+  return isNaN(price) ? 0 : Math.round(price); // Arrondir pour éviter les décimales
 }
 
 /**
@@ -716,17 +753,32 @@ export async function fetchPricesFromTypeformCSV(
   // Traiter par batch pour limiter la concurrence
   for (let i = 0; i < projectCodesArray.length; i += maxConcurrent) {
     const batch = projectCodesArray.slice(i, i + maxConcurrent);
+    const batchNum = Math.floor(i / maxConcurrent) + 1;
+    const totalBatches = Math.ceil(projectCodesArray.length / maxConcurrent);
+    
+    console.log(`📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} projects)...`);
     
     const batchPromises = batch.map(async ([projectCode, data]) => {
-      // Si useExistingPrices est true et qu'on a déjà un prix, l'utiliser
-      if (useExistingPrices && data.price !== undefined && data.price > 0) {
-        console.log(`Using existing price ${data.price} for project ${projectCode}`);
-        return { projectCode, price: data.price };
-      }
+      try {
+        // Si useExistingPrices est true et qu'on a déjà un prix, l'utiliser
+        if (useExistingPrices && data.price !== undefined && data.price > 0) {
+          console.log(`  ✓ Using existing price ${data.price} for project ${projectCode}`);
+          return { projectCode, price: data.price };
+        }
 
-      // Sinon, scraper depuis Plum Living
-      const price = await fetchPriceFromPlumLiving(projectCode);
-      return { projectCode, price };
+        // Sinon, scraper depuis Plum Living
+        console.log(`  🔍 Fetching price for project ${projectCode}...`);
+        const price = await fetchPriceFromPlumLiving(projectCode);
+        if (price > 0) {
+          console.log(`  ✓ Got price ${price} for project ${projectCode}`);
+        } else {
+          console.log(`  ✗ No price found for project ${projectCode}`);
+        }
+        return { projectCode, price };
+      } catch (error: any) {
+        console.error(`  ✗ Error fetching price for ${projectCode}:`, error.message);
+        return { projectCode, price: 0 };
+      }
     });
 
     const batchResults = await Promise.all(batchPromises);
@@ -737,9 +789,12 @@ export async function fetchPricesFromTypeformCSV(
       }
     });
 
+    const progress = ((i + maxConcurrent) / projectCodesArray.length * 100).toFixed(1);
+    console.log(`  📊 Progress: ${progress}% (${results.size} prices fetched so far)`);
+
     // Délai entre les batches pour éviter le rate limiting
     if (i + maxConcurrent < projectCodesArray.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // Augmenté à 2 secondes
     }
   }
 

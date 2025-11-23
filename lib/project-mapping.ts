@@ -53,13 +53,14 @@ function normalizeDateForComparison(dateStr: string): string {
   return '';
 }
 
+
 /**
  * Fait le mapping entre les codes projets et les requests existantes
  * 
  * Stratégies de matching (dans l'ordre):
  * 1. Par projectCode (si déjà présent dans les requests)
- * 2. Par clientName + date (correspondance exacte)
- * 3. Par email + date (si disponible)
+ * 2. Par clientEmail + date (correspondance exacte) - STRATÉGIE PRINCIPALE
+ * 3. Par clientName + date (correspondance exacte) - Fallback
  * 
  * @param requests - Liste des requests existantes
  * @param projectData - Map des codes projets depuis le CSV Typeform
@@ -80,8 +81,25 @@ export function mapProjectsToRequests(
     }
   });
 
-  // Créer un index des requests par clientName + date
-  // Format: "NORMALIZED_NAME|YYYY-MM-DD" -> Request
+  // Créer un index des requests par clientEmail + date (STRATÉGIE PRINCIPALE)
+  // Format: "EMAIL|YYYY-MM-DD" -> Request[]
+  const requestsByEmailAndDate = new Map<string, Request[]>();
+  requests.forEach(req => {
+    if (req.clientEmail) {
+      const normalizedEmail = req.clientEmail.toLowerCase().trim();
+      const normalizedDate = normalizeDateForComparison(req.date);
+      if (normalizedEmail && normalizedDate) {
+        const key = `${normalizedEmail}|${normalizedDate}`;
+        if (!requestsByEmailAndDate.has(key)) {
+          requestsByEmailAndDate.set(key, []);
+        }
+        requestsByEmailAndDate.get(key)!.push(req);
+      }
+    }
+  });
+
+  // Créer un index des requests par clientName + date (Fallback)
+  // Format: "NORMALIZED_NAME|YYYY-MM-DD" -> Request[]
   const requestsByNameAndDate = new Map<string, Request[]>();
   requests.forEach(req => {
     const normalizedName = normalizeName(req.clientName);
@@ -103,8 +121,37 @@ export function mapProjectsToRequests(
       return;
     }
 
-    // Stratégie 2: Matching par clientName + date
-    if (data.clientName && data.submitDate) {
+    // Stratégie 2: Matching par clientEmail + date (STRATÉGIE PRINCIPALE)
+    // CORRESPONDANCE EXACTE REQUISE - pas de tolérance
+    if (data.clientEmail && data.submitDate) {
+      const normalizedEmail = data.clientEmail.toLowerCase().trim();
+      const normalizedDate = normalizeDateForComparison(data.submitDate);
+      
+      if (normalizedEmail && normalizedDate) {
+        const exactKey = `${normalizedEmail}|${normalizedDate}`;
+        const exactMatches = requestsByEmailAndDate.get(exactKey);
+        
+        if (exactMatches && exactMatches.length > 0) {
+          // Filtrer par type si plusieurs correspondances
+          const filtered = exactMatches.filter(req => req.type === data.type);
+          if (filtered.length > 0) {
+            // Prendre la première correspondance (ou la plus récente si plusieurs)
+            const bestMatch = filtered.sort((a, b) => 
+              new Date(b.date).getTime() - new Date(a.date).getTime()
+            )[0];
+            matched.set(projectCode, bestMatch);
+            return;
+          } else if (exactMatches.length === 1) {
+            // Si une seule correspondance même si le type ne correspond pas exactement
+            matched.set(projectCode, exactMatches[0]);
+            return;
+          }
+        }
+      }
+    }
+
+    // Stratégie 3: Matching par clientName + date (Fallback si pas d'email)
+    if (!data.clientEmail && data.clientName && data.submitDate) {
       const normalizedName = normalizeName(data.clientName);
       const normalizedDate = normalizeDateForComparison(data.submitDate);
       
@@ -130,35 +177,6 @@ export function mapProjectsToRequests(
         }
       }
     }
-
-    // Stratégie 3: Matching par email + date (si clientName non disponible)
-    if (!data.clientName && data.email && data.submitDate) {
-      // Extraire le nom depuis l'email (ex: "jean.dupont@gmail.com" -> "DUPONT")
-      const emailParts = data.email.split('@')[0].split('.');
-      const possibleNames = emailParts.map(part => part.toUpperCase());
-      const normalizedDate = normalizeDateForComparison(data.submitDate);
-      
-      if (normalizedDate) {
-        // Chercher dans les requests avec la même date
-        for (const request of requests) {
-          if (request.type === data.type) {
-            const requestDate = normalizeDateForComparison(request.date);
-            if (requestDate === normalizedDate) {
-              const requestNameUpper = normalizeName(request.clientName);
-              // Vérifier si une partie de l'email correspond au nom du client
-              if (possibleNames.some(name => 
-                requestNameUpper.includes(name) || 
-                name.includes(requestNameUpper) ||
-                requestNameUpper.includes(name.substring(0, 3)) // Correspondance partielle
-              )) {
-                matched.set(projectCode, request);
-                return;
-              }
-            }
-          }
-        }
-      }
-    }
     
     // Si aucune correspondance trouvée, ajouter à unmatched
     unmatched.push(projectCode);
@@ -178,9 +196,9 @@ export function mapProjectsToRequests(
 /**
  * Met à jour les requests avec les codes projets et les prix
  * 
- * IMPORTANT: Cette fonction préserve les prix existants. Elle ne met à jour que:
+ * IMPORTANT: Cette fonction préserve les prix existants. Elle met à jour:
  * - Les requests qui ont un projectCode ET qui sont dans projectData (avec un nouveau prix si disponible)
- * - Les requests qui sont dans le mapping (même sans projectCode préalable)
+ * - Les requests qui sont dans le mapping (même sans projectCode préalable) - ASSIGNE LE PRIX ET LE PROJECTCODE
  * 
  * Les requests qui ne sont pas dans projectData (projets filtrés par date par exemple)
  * conservent leurs prix existants.
@@ -220,23 +238,35 @@ export function updateRequestsWithProjectData(
     // (c'est-à-dire qu'on a récupéré un nouveau prix pour ce projet)
     if (request.projectCode && projectData.has(request.projectCode)) {
       const price = prices.get(request.projectCode);
-      // Mettre à jour le prix seulement si on en a un nouveau (price > 0)
-      if (price !== undefined && price > 0) {
-        updated = { ...updated, price };
-        shouldUpdate = true;
+      // Mettre à jour le prix si:
+      // - On a un prix > 0 (prix valide récupéré)
+      // - OU le prix actuel est 20€ (valeur suspecte par défaut) et on a tenté de récupérer (même si 0)
+      if (price !== undefined) {
+        if (price > 0 || (request.price === 20 && price === 0)) {
+          updated = { ...updated, price };
+          shouldUpdate = true;
+        }
       }
     }
     
     // Cas 2: Request est dans le mapping (nouveau matching) ET le projectCode est dans projectData
     // (c'est-à-dire qu'on vient de matcher cette request avec un projet et on a récupéré son prix)
+    // IMPORTANT: On assigne à la fois le prix ET le projectCode
     const projectCodeForRequest = Array.from(requestIdByProjectCode.entries())
       .find(([_, requestId]) => requestId === request.id)?.[0];
     
     if (projectCodeForRequest && projectData.has(projectCodeForRequest)) {
       const price = prices.get(projectCodeForRequest);
-      if (price !== undefined && price > 0) {
-        updated = { ...updated, price };
-        shouldUpdate = true;
+      if (price !== undefined) {
+        // Mettre à jour si prix > 0 OU si prix actuel est 20€ (valeur suspecte)
+        if (price > 0 || request.price === 20) {
+          updated = { 
+            ...updated, 
+            price,
+            projectCode: projectCodeForRequest // Assigner aussi le projectCode
+          };
+          shouldUpdate = true;
+        }
       }
     }
 

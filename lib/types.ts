@@ -9,6 +9,21 @@ export interface RequestColors {
   colonne?: string;
 }
 
+export interface RequestSection {
+  design?: string;
+  color?: string;
+  handle?: string;
+  worktop?: string; // Only for BOTTOM
+  backsplash?: string; // Only for BOTTOM
+  tap?: string; // Only for BOTTOM
+}
+
+export interface RequestSections {
+  bottom?: RequestSection;
+  top?: RequestSection;
+  column?: RequestSection;
+}
+
 export interface Render {
   id: string;
   filename: string;
@@ -22,17 +37,20 @@ export interface Request {
   clientName: string;
   ppName?: string; // Name of the PP (Plum Planner) if type is PP
   type: RequestType;
-  date: string; // ISO date string
+  date: string; // ISO date string (date de réception)
   status: RequestStatus;
   assignedTo: string | null; // artistId
   price: number;
   ikpLink: string;
   design: string;
   colors: RequestColors;
+  sections?: RequestSections; // Design/Color/Handle par section (BOTTOM, TOP, COLUMN)
   description: string;
   thumbnail: string; // URL to thumbnail image
   renders: Render[];
   projectCode?: string; // Code UUID du projet depuis Typeform (pour mapping avec les prix)
+  clientEmail?: string; // Email client depuis Google Sheets (colonne D) pour matching avec CSV
+  sentDate?: string; // ISO date string (date d'envoi au client - colonne M "DATE OF SENDING")
 }
 
 export interface Artist {

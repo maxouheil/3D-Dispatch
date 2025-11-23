@@ -39,6 +39,14 @@ export function isSentStatus(status: string): boolean {
 }
 
 /**
+ * Get the date to use for "sent this week" calculation
+ * Uses sentDate if available (date when sent to client), otherwise uses date (date received)
+ */
+export function getSentDate(request: { date: string; sentDate?: string }): string {
+  return request.sentDate || request.date;
+}
+
+/**
  * Check if a date is within the last 7 rolling days
  */
 export function isWithinLast7Days(dateString: string): boolean {

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { Request, Artist } from '@/lib/types';
 import { dummyArtists } from '@/lib/dummy-data';
-import { isBacklogStatus, isOngoingStatus, isSentStatus, isWithinCurrentWeek } from '@/lib/utils';
+import { isBacklogStatus, isOngoingStatus, isSentStatus, isWithinCurrentWeek, getSentDate } from '@/lib/utils';
 
 const requestsPath = path.join(process.cwd(), 'data', 'requests.json');
 const artistsPath = path.join(process.cwd(), 'data', 'artists.json');
@@ -68,9 +68,11 @@ export async function GET(
   ).length;
   
   // Sent: sent to client (current week only)
-  const sentCount = artistRequests.filter(
-    r => r.date && isSentStatus(r.status) && isWithinCurrentWeek(r.date)
-  ).length;
+  // Use sentDate if available (date when sent to client), otherwise use date (date received)
+  const sentCount = artistRequests.filter((r) => {
+    const sentDate = getSentDate(r);
+    return sentDate && isSentStatus(r.status) && isWithinCurrentWeek(sentDate);
+  }).length;
 
   return NextResponse.json({
     artist: {

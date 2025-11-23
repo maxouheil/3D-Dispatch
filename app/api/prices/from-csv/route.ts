@@ -47,6 +47,9 @@ function saveRequests(requests: Request[]): void {
   }
 }
 
+// Note: Le timeout de Next.js pour les routes API peut être limité
+// Si cette route timeout, il faudra peut-être diviser le processus en plusieurs requêtes plus petites
+
 /**
  * Route API pour synchroniser les prix depuis les CSV Typeform
  * 
@@ -60,6 +63,9 @@ function saveRequests(requests: Request[]): void {
  * }
  */
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  console.log('🚀 Starting price fetch from CSV at', new Date().toISOString());
+  
   try {
     const body = await request.json().catch(() => ({}));
     
@@ -106,20 +112,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Récupérer les prix depuis Plum Living
-    console.log('Fetching prices from Plum Living...');
+    // Charger les requests existantes AVANT de récupérer les prix
+    const requests = getRequests();
+    console.log(`Loaded ${requests.length} existing requests`);
+
+    // Filtrer pour ne récupérer que les prix des projets qui sont déjà mappés aux requests
+    // et qui n'ont pas encore de prix, OU qui sont dans le CSV
+    const projectsToFetch = new Map<string, { type: 'PP' | 'Client'; price?: number; email?: string }>();
+    
+    // 1. Ajouter tous les projets du CSV
+    parseResult.projects.forEach((data, projectCode) => {
+      projectsToFetch.set(projectCode, data);
+    });
+    
+    // 2. Ajouter aussi les requests qui ont un projectCode mais pas de prix
+    const requestsWithoutPrice = requests.filter(r => r.projectCode && (!r.price || r.price === 0));
+    console.log(`Found ${requestsWithoutPrice.length} requests with projectCode but no price`);
+    
+    requestsWithoutPrice.forEach(req => {
+      if (req.projectCode && !projectsToFetch.has(req.projectCode)) {
+        projectsToFetch.set(req.projectCode, { type: req.type });
+      }
+    });
+
+    // Limiter à un petit nombre pour éviter les timeouts
+    const maxProjects = body.maxProjects || 5;
+    const allProjects = Array.from(projectsToFetch.entries());
+    const limitedProjects = allProjects.slice(0, maxProjects);
+    const limitedProjectsMap = new Map(limitedProjects);
+    
+    console.log(`💰 Fetching prices for ${limitedProjects.length} projects (limited from ${projectsToFetch.size} total)`);
+    if (projectsToFetch.size > maxProjects) {
+      console.log(`⚠️ Limiting to first ${maxProjects} projects to avoid timeout. ${projectsToFetch.size - maxProjects} remaining.`);
+    }
+    
+    const pricesStartTime = Date.now();
     const prices = await fetchPricesFromTypeformCSV(
-      parseResult.projects,
-      5, // maxConcurrent
+      limitedProjectsMap,
+      2, // maxConcurrent (réduit à 2 pour éviter les timeouts)
       useExistingPrices
     );
 
+    const pricesElapsed = Math.round((Date.now() - pricesStartTime) / 1000);
     const pricesFetched = Array.from(prices.values()).filter(p => p > 0).length;
-    console.log(`Fetched prices for ${pricesFetched} out of ${parseResult.projects.size} projects`);
-
-    // Charger les requests existantes
-    const requests = getRequests();
-    console.log(`Loaded ${requests.length} existing requests`);
+    console.log(`✅ Fetched prices for ${pricesFetched} out of ${limitedProjects.length} projects in ${pricesElapsed}s`);
 
     // Faire le mapping entre codes projets et requests
     const mapping = mapProjectsToRequests(requests, parseResult.projects);
@@ -139,7 +175,8 @@ export async function POST(request: NextRequest) {
     updatedRequests = updateRequestsWithProjectData(
       updatedRequests,
       parseResult.projects,
-      prices
+      prices,
+      mapping.matched // Passer le mapping pour que les nouveaux matchings soient pris en compte
     );
 
     // Compter les mises à jour
@@ -164,6 +201,8 @@ export async function POST(request: NextRequest) {
         price: prices.get(code) || data.price || 0,
       }));
 
+    const remainingCount = Math.max(0, projectsToFetch.size - maxProjects);
+    
     return NextResponse.json({
       success: true,
       stats: {
@@ -174,20 +213,31 @@ export async function POST(request: NextRequest) {
         requestsMatched: mapping.stats.matched,
         requestsUnmatched: mapping.stats.unmatched,
         requestsUpdated: updatedCount,
+        projectsProcessed: limitedProjects.length,
+        projectsRemaining: remainingCount,
       },
       unmatchedProjects: unmatchedProjects.slice(0, 20), // Limiter à 20 pour la réponse
       unmatchedCount: unmatchedProjects.length,
+      message: remainingCount > 0 
+        ? `Récupéré ${pricesFetched} prix sur ${limitedProjects.length} projets traités. ${remainingCount} projets restants. Relancez pour continuer.`
+        : `Récupéré ${pricesFetched} prix sur ${limitedProjects.length} projets.`,
     });
   } catch (error: any) {
-    console.error('Error fetching prices from CSV:', error);
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    console.error(`❌ Error fetching prices from CSV after ${elapsed}s:`, error);
+    console.error('Error stack:', error.stack);
     return NextResponse.json(
       { 
         error: 'Failed to fetch prices from CSV',
         message: error.message,
+        elapsedSeconds: elapsed,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       { status: 500 }
     );
+  } finally {
+    const totalElapsed = Math.round((Date.now() - startTime) / 1000);
+    console.log(`⏱️ Total execution time: ${totalElapsed}s (${Math.round(totalElapsed / 60)} minutes)`);
   }
 }
 

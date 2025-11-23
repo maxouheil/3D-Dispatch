@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { formatRequestNumber } from '@/lib/format-utils';
+import { formatRequestNumber, formatPrice } from '@/lib/format-utils';
 import { getArtistFlag } from '@/lib/artist-flags';
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
@@ -97,7 +97,7 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
     const date = new Date(dateString);
     const month = date.toLocaleDateString('en-US', { month: 'short' });
     const day = date.getDate();
-    return `${month} ${day}`;
+    return `${day} ${month}`;
   };
 
   const getArtist = (artistId: string | null) => {
@@ -117,7 +117,7 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
       onClick={handleClick}
       className="cursor-pointer hover:shadow-lg transition-all duration-200 bg-white rounded-xl border border-gray-200 overflow-hidden mb-3"
     >
-      {/* Top Section: Name, ID, and Thumbnail */}
+      {/* Top Section: Name, ID, Date, and Thumbnail */}
       <div className="relative p-5 pb-4">
         {/* Thumbnail - Top Right */}
         <div className="absolute top-5 right-5 w-11 h-11 rounded-lg overflow-hidden bg-gray-100 shadow-sm border border-gray-200">
@@ -136,13 +136,13 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
           )}
         </div>
 
-        {/* Name and ID - Top Left */}
-        <div className="pr-16">
+        {/* Name and ID+Date - Top Left */}
+        <div className="pr-20">
           <h3 className="font-semibold text-sm text-gray-900 mb-1 leading-tight">
             {request.clientName}
           </h3>
           <p className="text-sm text-gray-500 font-medium">
-            {formatRequestNumber(request.number, request.type)}
+            {formatRequestNumber(request.number, request.type)} · {formatDate(request.date)}
           </p>
         </div>
       </div>
@@ -150,7 +150,7 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
       {/* Divider */}
       <div className="h-px bg-gray-200 mx-5"></div>
 
-      {/* Bottom Section: Artist Tag and Date */}
+      {/* Bottom Section: Artist Tag and Price */}
       <div className="p-5 pt-4 flex items-center justify-between">
         {/* Artist Tag */}
         <div 
@@ -161,7 +161,7 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
           {assignedArtist ? (
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-sm font-medium text-gray-700 border border-gray-200"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-sm font-medium text-gray-900 border border-gray-200"
             >
               <span>{assignedArtist.name}</span>
               {artistFlag && (
@@ -208,10 +208,12 @@ export function KanbanCard({ request, artists = [], onArtistChange }: KanbanCard
           )}
         </div>
 
-        {/* Date */}
-        <div className="text-sm text-gray-500 font-medium">
-          {formatDate(request.date)}
-        </div>
+        {/* Price */}
+        {request.price !== undefined && request.price !== null && request.price > 0 && (
+          <div className="text-sm text-gray-900 font-medium">
+            {formatPrice(request.price)}
+          </div>
+        )}
       </div>
     </Card>
   );

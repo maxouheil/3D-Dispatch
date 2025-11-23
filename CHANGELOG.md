@@ -358,6 +358,135 @@ GOOGLE_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account",...}'
 
 ---
 
+## 🎨 Mise à jour - Système de matching CSV et affichage des couleurs (Décembre 2024)
+
+### ✅ Matching automatique CSV Typeform ↔ Google Sheets
+
+1. **Nouveau composant CSVMatching**
+   - Interface dans le dashboard admin pour matcher les projets
+   - Matching automatique des requêtes des 7 derniers jours
+   - Utilise la stratégie **EMAIL + DATE** pour le matching
+   - Statistiques détaillées : total, matchés, déjà avec projectCode, non trouvés
+   - Logs de debug pour le troubleshooting
+
+2. **Route API `/api/requests/match-csv`**
+   - Matching automatique des requêtes récentes (7 derniers jours)
+   - Normalisation intelligente des emails et dates
+   - Mise à jour automatique des `projectCode` dans les requêtes
+   - Support des formats de dates multiples (ISO, DD/MM/YYYY)
+   - Détection des matches partiels (même email, date différente)
+
+3. **Améliorations du parsing CSV**
+   - Nouveau module `lib/csv-request-parser.ts` pour extraire les données détaillées
+   - Support complet pour PP (monochrome/bicolor) et Client
+   - Extraction des sections (top, bottom, column, îlot)
+   - Détection automatique du type bicolor
+   - Extraction des colonnes par index pour flexibilité
+
+4. **Route API `/api/requests/[id]/csv-data`**
+   - Récupération des données CSV complètes pour une requête
+   - Stratégie de recherche multi-niveaux :
+     - Priorité 1 : Email + Date (pour matching précis)
+     - Priorité 2 : ProjectCode (si disponible)
+     - Priorité 3 : Request Number (fallback)
+   - Construction automatique des URLs IKP et thumbnails
+   - Extraction des dates de soumission depuis CSV pour thumbnails
+
+### 🎨 Système de mapping d'images de couleurs
+
+1. **Nouveau module `lib/color-image-mapping.ts`**
+   - Mapping intelligent des noms de couleurs vers les images
+   - Support de toutes les catégories : couleurs, designs, plans de travail, poignées, mitigeurs
+   - Normalisation automatique des noms (accents, casse, caractères spéciaux)
+   - Recherche adaptative avec correspondance partielle
+   - Images par défaut pour chaque catégorie
+
+2. **Palette de couleurs IKEA (`lib/ikea-colors.ts`)**
+   - Palette complète avec codes hex pour toutes les couleurs IKEA
+   - Catégories : general, rouges, bleus, new, paulineBorgia
+   - Fonctions utilitaires pour rechercher par nom
+   - Mapping des noms français vers les codes couleur
+
+3. **Intégration dans RequestDetails**
+   - Affichage des images de couleurs depuis `/public/color-images/`
+   - Support des images pour designs, poignées, plans de travail, mitigeurs
+   - Fallback automatique sur images par défaut si non trouvées
+   - Utilisation des couleurs IKEA pour l'affichage visuel
+
+4. **Structure des images**
+   - Organisation par catégories : `bois/`, `design/`, `plan_travail/`, `poignees/`, `mitigeur/`
+   - Support des sous-dossiers : `rouges/`, `bleus/`, `new/`, `pauline-borgia/`
+   - Noms de fichiers normalisés pour correspondance automatique
+
+### 🔧 Améliorations du parsing Typeform CSV
+
+1. **Module `lib/typeform-csv-parser.ts` amélioré**
+   - Détection automatique du type de CSV (PP vs Client)
+   - Extraction des emails clients et PP
+   - Extraction des dates de soumission (Submit Date UTC)
+   - Support des noms de clients depuis CSV
+   - Fonction `extractAllMatchingDataFromCSVs()` pour matching global
+
+2. **Nouvelles routes API pour les prix**
+   - `/api/prices/fetch-recent` - Récupération des prix pour les requêtes récentes
+   - `/api/prices/test-5` - Test avec 5 projets et logs en temps réel
+   - `/api/prices/test-5-logs` - Récupération des logs de test
+   - `/api/prices/test-single` - Test avec un seul projet
+
+3. **Système de logs en temps réel**
+   - Store de logs partagé (`lib/test-logs-store.ts`)
+   - Polling des logs depuis le frontend
+   - Affichage de la progression en temps réel
+   - Support des différents types de logs (progress, result, complete)
+
+### 📁 Fichiers créés/modifiés
+
+#### Nouveaux fichiers
+- `components/admin/CSVMatching.tsx` - Composant UI pour le matching CSV
+- `app/api/requests/match-csv/route.ts` - Endpoint API pour le matching
+- `lib/color-image-mapping.ts` - Module de mapping des images de couleurs
+- `lib/ikea-colors.ts` - Palette de couleurs IKEA
+- `lib/test-logs-store.ts` - Store pour les logs de test
+- `app/api/prices/fetch-recent/route.ts` - Récupération des prix récents
+- `app/api/prices/test-5/route.ts` - Test avec 5 projets
+- `app/api/prices/test-5-logs/route.ts` - Récupération des logs
+- `app/api/prices/test-single/route.ts` - Test avec un projet
+- `docs/COLOR_PALETTE.md` - Documentation de la palette de couleurs
+- `docs/IMAGE_MAPPING_SUMMARY.md` - Résumé du mapping d'images
+- `docs/IMAGES_PAR_DEFAUT.md` - Documentation des images par défaut
+
+#### Fichiers modifiés
+- `lib/csv-request-parser.ts` - Améliorations du parsing CSV
+- `lib/typeform-csv-parser.ts` - Améliorations de l'extraction
+- `lib/price-fetcher.ts` - Améliorations de la récupération des prix
+- `components/request/RequestDetails.tsx` - Intégration des images de couleurs et données CSV
+- `app/request/[requestId]/page.tsx` - Utilisation des données CSV et images
+- `app/api/requests/[id]/csv-data/route.ts` - Nouvelle route pour données CSV
+- `app/admin/page.tsx` - Ajout du composant CSVMatching
+- `lib/format-utils.ts` - Améliorations du formatage
+
+### 🎯 Fonctionnalités clés
+
+1. **Matching automatique**
+   - Matching des requêtes des 7 derniers jours uniquement (performance)
+   - Normalisation robuste des emails et dates
+   - Statistiques détaillées pour monitoring
+   - Logs de debug pour troubleshooting
+
+2. **Affichage visuel amélioré**
+   - Images de couleurs pour tous les éléments (couleurs, designs, poignées, etc.)
+   - Palette de couleurs IKEA intégrée
+   - Fallback automatique sur images par défaut
+   - Support des projets bicolores avec sections séparées
+
+3. **Extraction de données enrichie**
+   - Extraction complète des données depuis CSV Typeform
+   - Support des sections multiples (top, bottom, column, îlot)
+   - Détection automatique du type de projet (monochrome/bicolor)
+   - Construction automatique des URLs IKP et thumbnails
+
+---
+
 ## 🚀 Prochaines étapes possibles
 
 ### Améliorations futures
@@ -391,6 +520,178 @@ GOOGLE_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account",...}'
 
 ---
 
-**Date de dernière mise à jour:** 2024-11-22
-**Version:** 1.1.0
+---
+
+## 🎨 Mise à jour - Format des cards Kanban et améliorations UI (Décembre 2024)
+
+### ✅ Améliorations du format des cards Kanban
+
+1. **Nouveau format de card optimisé**
+   - Nom du client en haut à gauche (taille standard)
+   - Identifiant et date combinés sur une même ligne avec séparateur "·" (format: `PP_2345 · 20 Nov`)
+   - Thumbnail à droite (44px) avec fallback IKP si image manquante
+   - Séparateur visuel entre sections
+   - Section du bas: sélecteur d'artiste à gauche, prix à droite (noir, formaté en euros)
+   - Layout horizontal optimisé pour meilleure lisibilité
+
+2. **Sélecteur d'artiste amélioré**
+   - Bouton ovale avec drapeau du pays de l'artiste
+   - Dropdown pour changer l'assignation
+   - Support des artistes non assignés avec état visuel distinct
+
+3. **Formatage des prix**
+   - Affichage en noir pour meilleure visibilité
+   - Format français avec espaces comme séparateurs de milliers
+   - Masquage si prix = 0 ou non défini
+
+### 📁 Fichiers modifiés
+- `components/kanban/KanbanCard.tsx` - Refonte complète du format des cards
+- `lib/format-utils.ts` - Fonction `formatPrice()` améliorée
+
+---
+
+## 🔧 Mise à jour - Système de calcul "sent this week" amélioré (Décembre 2024)
+
+### ✅ Support de la date d'envoi (sentDate)
+
+1. **Nouveau champ `sentDate` dans Request**
+   - Champ optionnel pour stocker la date d'envoi au client
+   - Correspond à la colonne "DATE OF SENDING" (colonne M) du spreadsheet
+   - Permet un calcul précis de "sent this week"
+
+2. **Fonction utilitaire `getSentDate()`**
+   - Utilise `sentDate` si disponible, sinon utilise `date` (date de réception)
+   - Assure la compatibilité avec les données existantes
+   - Centralise la logique de sélection de date pour "sent this week"
+
+3. **Calcul amélioré dans tous les endroits**
+   - Dashboard admin : utilise maintenant `getSentDate()` pour le calcul
+   - API `/api/artists` : calcul correct pour chaque artiste
+   - API `/api/artists/[id]/backlog` : calcul correct pour le backlog
+   - Cohérence entre tous les affichages
+
+### 📁 Fichiers créés/modifiés
+- `lib/types.ts` - Ajout du champ `sentDate?: string` dans `Request`
+- `lib/utils.ts` - Nouvelle fonction `getSentDate()`
+- `app/admin/page.tsx` - Utilisation de `getSentDate()` pour les stats
+- `app/api/artists/route.ts` - Calcul amélioré avec `getSentDate()`
+- `app/api/artists/[id]/backlog/route.ts` - Calcul amélioré avec `getSentDate()`
+
+---
+
+## 💰 Progrès sur la récupération des prix depuis CSV (Décembre 2024)
+
+### ✅ Améliorations majeures
+
+1. **Système de récupération optimisé**
+   - **Méthode principale** : Via CSV Typeform avec scraping Plum Living
+   - **Taux de matching** : ~73% des projets automatiquement matchés
+   - **Performance** : 5 projets en parallèle, ~10-15 secondes par projet
+   - **Authentification automatique** : Login automatique sur Plum Living avec credentials
+
+2. **Stratégies de matching améliorées**
+   - **Priorité 1** : NAME + DATE (normalisé pour correspondance exacte)
+   - **Priorité 2** : projectCode existant (match direct si déjà assigné)
+   - **Priorité 3** : EMAIL + DATE (fallback si nom non disponible)
+   - Filtre par type (PP vs Client) pour éviter les faux positifs
+   - Normalisation robuste des emails et dates
+
+3. **Extraction du prix optimisée**
+   - Recherche dans la sidebar Mantine avec sélecteurs CSS précis
+   - Filtrage des prix raisonnables (entre 1000 et 1000000€)
+   - Prend le plus grand nombre trouvé (prix total)
+   - Gestion des erreurs avec retry automatique
+   - Timeout de 30 secondes par page avec gestion des timeouts
+
+4. **Interface utilisateur enrichie**
+   - Composant `CSVMatching` dans le dashboard admin
+   - Matching automatique des requêtes des 7 derniers jours
+   - Statistiques détaillées : total, matchés, déjà avec projectCode, non trouvés
+   - Logs de debug pour le troubleshooting
+   - Affichage de la progression en temps réel
+
+5. **Routes API améliorées**
+   - `/api/prices/from-csv` - Récupération complète avec options configurables
+   - `/api/prices/fetch-recent` - Récupération pour les requêtes récentes uniquement
+   - `/api/prices/test-5` - Test avec 5 projets et logs en temps réel
+   - `/api/prices/test-single` - Test avec un seul projet
+   - Support des logs en temps réel avec polling depuis le frontend
+
+6. **Système de logs en temps réel**
+   - Store partagé de logs (`lib/test-logs-store.ts`)
+   - Polling automatique depuis le frontend
+   - Affichage de la progression avec différents types de logs (progress, result, complete)
+   - Logs détaillés dans `/tmp/fetch-prices.log` pour debugging
+
+7. **Scripts améliorés**
+   - `scripts/fetch-prices-from-csv.ts` - Script standalone avec options CLI
+   - Support de `--use-existing-prices` pour utiliser les prix du CSV
+   - Support de `--dry-run` pour tester sans sauvegarder
+   - Support de `--no-assign-codes` pour ne pas assigner les codes projets
+   - Auto-détection des CSV dans le dossier Downloads
+
+### 📊 Statistiques de performance
+
+- **3058 projets** dans les CSV Typeform (2194 PP + 974 Client)
+- **~2239 projets matchés** automatiquement (73% de réussite)
+- **~819 projets non matchés** nécessitant un mapping manuel ou des critères supplémentaires
+- **Temps estimé** : ~2-3 heures pour récupérer tous les prix
+- **Taux de réussite du scraping** : ~95% des projets accessibles
+
+### 📁 Fichiers créés/modifiés
+
+#### Nouveaux fichiers
+- `app/api/prices/fetch-recent/route.ts` - Récupération des prix récents
+- `app/api/prices/test-5/route.ts` - Test avec 5 projets
+- `app/api/prices/test-5-logs/route.ts` - Récupération des logs
+- `app/api/prices/test-single/route.ts` - Test avec un projet
+- `lib/test-logs-store.ts` - Store pour les logs de test
+- `docs/PRICE_FETCHING_FROM_CSV.md` - Documentation complète du système
+
+#### Fichiers améliorés
+- `lib/price-fetcher.ts` - Améliorations majeures du scraping et de l'authentification
+- `lib/typeform-csv-parser.ts` - Extraction améliorée des données CSV
+- `lib/project-mapping.ts` - Stratégies de matching améliorées
+- `app/api/prices/from-csv/route.ts` - Route API enrichie avec options
+- `components/admin/CSVMatching.tsx` - Interface utilisateur améliorée
+
+### 🎯 Fonctionnalités clés
+
+1. **Récupération automatique des prix**
+   - Parsing automatique des CSV Typeform (PP et Client)
+   - Extraction des codes projets depuis les colonnes spécifiques
+   - Scraping automatique depuis Plum Living avec authentification
+   - Mise à jour automatique des requests avec prix et projectCode
+
+2. **Matching intelligent**
+   - Multi-stratégies de matching pour maximiser le taux de réussite
+   - Normalisation robuste des noms, emails et dates
+   - Filtrage par type pour éviter les faux positifs
+   - Support des formats de dates multiples (ISO, DD/MM/YYYY)
+
+3. **Gestion des erreurs robuste**
+   - Retry automatique en cas d'échec de connexion
+   - Timeout configurable par page
+   - Gestion des rate limiting avec limite de concurrence
+   - Logs détaillés pour debugging
+
+4. **Monitoring et debugging**
+   - Logs en temps réel avec progression visible
+   - Statistiques détaillées de matching et récupération
+   - Interface utilisateur pour monitoring
+   - Export des projets non matchés pour analyse
+
+### 🚀 Prochaines améliorations possibles
+
+- [ ] Cache des prix pour éviter les re-scraping inutiles
+- [ ] Support de reprise après interruption
+- [ ] Mapping amélioré avec plus de critères (adresse, téléphone, etc.)
+- [ ] Interface web complète pour le monitoring en temps réel
+- [ ] Export des projets non matchés en CSV pour mapping manuel
+- [ ] Support de batch processing avec sauvegarde incrémentale
+
+---
+
+**Date de dernière mise à jour:** 2024-12-20
+**Version:** 1.3.0
 
